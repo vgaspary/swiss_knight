@@ -4,12 +4,22 @@ use ratatui::crossterm::event;
 use ratatui::crossterm::event::Event;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::crossterm::event::KeyEventKind;
-use ratatui::crossterm::event::KeyModifiers;
 use ratatui::layout::Alignment;
 use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Paragraph;
 use std::io;
+
+#[derive(Clone, Debug)]
+enum Action {
+    // Navigation
+    Up,
+    Down,
+
+    // Lobby
+    AddPlayer(String),
+    RemovePlayer(usize),
+}
 
 fn main() -> io::Result<()> {
     // Initializes the terminal and enters alternate screen / raw mode
@@ -21,51 +31,39 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut message = String::from("Press any key (Esc to quit)");
+    let mut actions: Vec<Action> = vec![];
+    let mut redo_actions: Vec<Action> = vec![];
 
     loop {
-        terminal.draw(|frame| render(frame, &message))?;
+        terminal.draw(|frame| render(frame, &format!("Actions: {actions:?}")))?;
 
-        if let Event::Key(key_event) = event::read()? {
-            // Crossterm uses `KeyEventKind::Press` for key-down events.
-            // On platforms supporting key release/repeat, this filters to down/press events only.
-            if key_event.kind == KeyEventKind::Press {
-                let key_name = match key_event.code {
-                    KeyCode::Char(' ') => "Space".to_string(),
-                    KeyCode::Char(c) => c.to_string(),
-                    KeyCode::Backspace => "Backspace".to_string(),
-                    KeyCode::Enter => "Enter".to_string(),
-                    KeyCode::Left => "Left".to_string(),
-                    KeyCode::Right => "Right".to_string(),
-                    KeyCode::Up => "Up".to_string(),
-                    KeyCode::Down => "Down".to_string(),
-                    KeyCode::Home => "Home".to_string(),
-                    KeyCode::End => "End".to_string(),
-                    KeyCode::PageUp => "PageUp".to_string(),
-                    KeyCode::PageDown => "PageDown".to_string(),
-                    KeyCode::Tab => "Tab".to_string(),
-                    KeyCode::BackTab => "BackTab".to_string(),
-                    KeyCode::Delete => "Delete".to_string(),
-                    KeyCode::Insert => "Insert".to_string(),
-                    KeyCode::F(n) => format!("F{n}"),
-                    KeyCode::Esc => "Esc".to_string(),
-                    other => format!("{other:?}"),
-                };
+        if let Event::Key(k) = event::read()?
+            && k.kind == KeyEventKind::Press
+        {
+            match k.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Char('h') => todo!("show help floating window"),
 
-                message = format!("{key_name} was pressed");
+                KeyCode::Char('u') => actions.pop().inspect(|a| redo_actions.push(a.clone())),
+                KeyCode::Char('U') => redo_actions.pop().inspect(|a| actions.push(a.clone())),
 
-                // Exit on Esc or Ctrl+C
-                if key_event.code == KeyCode::Esc
-                    || (key_event.code == KeyCode::Char('c')
-                        && key_event.modifiers.contains(KeyModifiers::CONTROL))
-                {
-                    break;
+                key_code => {
+                    redo_actions.clear();
+                    key_to_action(key_code).inspect(|a| actions.push(a.clone()))
                 }
-            }
+            };
         }
     }
+}
 
-    Ok(())
+fn key_to_action(key_code: KeyCode) -> Option<Action> {
+    match key_code {
+        KeyCode::Char('a') => Some(Action::AddPlayer("Poxos".to_string())),
+        KeyCode::Char('r') => Some(Action::RemovePlayer(0)),
+        KeyCode::Char('k') => Some(Action::Up),
+        KeyCode::Char('j') => Some(Action::Down),
+        _ => None,
+    }
 }
 
 fn render(frame: &mut Frame, message: &str) {
