@@ -1,3 +1,5 @@
+mod undo;
+
 use ratatui::DefaultTerminal;
 use ratatui::Frame;
 use ratatui::crossterm::event;
@@ -9,6 +11,7 @@ use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Paragraph;
 use std::io;
+use undo::UndoStack;
 
 #[derive(Clone, Debug)]
 enum Action {
@@ -31,8 +34,7 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut actions: Vec<Action> = vec![];
-    let mut redo_actions: Vec<Action> = vec![];
+    let mut actions = UndoStack::new();
 
     loop {
         terminal.draw(|frame| render(frame, &format!("Actions: {actions:?}")))?;
@@ -44,12 +46,11 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                 KeyCode::Char('q') => return Ok(()),
                 KeyCode::Char('h') => todo!("show help floating window"),
 
-                KeyCode::Char('u') => actions.pop().inspect(|a| redo_actions.push(a.clone())),
-                KeyCode::Char('U') => redo_actions.pop().inspect(|a| actions.push(a.clone())),
+                KeyCode::Char('u') => actions.undo(),
+                KeyCode::Char('U') => actions.redo(),
 
                 key_code => {
-                    redo_actions.clear();
-                    key_to_action(key_code).inspect(|a| actions.push(a.clone()))
+                    key_to_action(key_code).inspect(|a| actions.push(a.clone()));
                 }
             };
         }
