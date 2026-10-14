@@ -81,7 +81,7 @@ impl<T> UndoStack<T> {
 
     /// Redoes the most recently undone action by moving it back to the undo stack.
     ///
-    /// If there are no actions to redo, this operation is a no-op.
+    /// Returns a reference to the redone item, or `None` if there are no actions to redo.
     ///
     /// # Examples
     ///
@@ -89,12 +89,36 @@ impl<T> UndoStack<T> {
     /// let mut undo_stack = UndoStack::new();
     /// undo_stack.push(1);
     /// undo_stack.undo();
-    /// undo_stack.redo();
+    ///
+    /// assert_eq!(undo_stack.redo(), Some(&1));
+    /// assert_eq!(undo_stack.redo(), None);
     /// ```
-    pub fn redo(&mut self) {
-        if let Some(item) = self.redo_stack.pop() {
+    pub fn redo(&mut self) -> Option<&T> {
+        self.redo_stack.pop().and_then(|item| {
             self.stack.push(item);
-        }
+            self.stack.last()
+        })
+    }
+
+    /// Returns a slice of the active items in the undo stack in chronological order.
+    ///
+    /// The items are ordered from oldest to most recently applied. Undone items
+    /// waiting to be redone are not included.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut undo_stack = UndoStack::new();
+    /// undo_stack.push(1);
+    /// undo_stack.push(2);
+    ///
+    /// assert_eq!(undo_stack.history(), &[1, 2]);
+    ///
+    /// undo_stack.undo();
+    /// assert_eq!(undo_stack.history(), &[1]);
+    /// ```
+    pub fn history(&self) -> &[T] {
+        &self.stack
     }
 }
 
@@ -158,11 +182,11 @@ mod tests {
         undo_stack.undo();
         undo_stack.undo();
 
-        undo_stack.redo();
+        assert_eq!(undo_stack.redo(), Some(&1));
         assert_eq!(undo_stack.stack, vec![1]);
         assert_eq!(undo_stack.redo_stack, vec![2]);
 
-        undo_stack.redo();
+        assert_eq!(undo_stack.redo(), Some(&2));
         assert_eq!(undo_stack.stack, vec![1, 2]);
         assert!(undo_stack.redo_stack.is_empty());
     }
@@ -172,9 +196,14 @@ mod tests {
         let mut undo_stack = UndoStack::new();
         undo_stack.push(1);
 
-        undo_stack.redo();
+        assert_eq!(undo_stack.redo(), None);
         assert_eq!(undo_stack.stack, vec![1]);
         assert!(undo_stack.redo_stack.is_empty());
+
+        let mut empty_stack: UndoStack<i32> = UndoStack::new();
+        assert_eq!(empty_stack.redo(), None);
+        assert!(empty_stack.stack.is_empty());
+        assert!(empty_stack.redo_stack.is_empty());
     }
 
     #[test]
@@ -191,8 +220,8 @@ mod tests {
         assert_eq!(undo_stack.stack, vec![1, 3]);
         assert!(undo_stack.redo_stack.is_empty());
 
-        // Redo should now be a no-op
-        undo_stack.redo();
+        // Redo should now be a no-op returning None
+        assert_eq!(undo_stack.redo(), None);
         assert_eq!(undo_stack.stack, vec![1, 3]);
         assert!(undo_stack.redo_stack.is_empty());
     }
@@ -208,14 +237,55 @@ mod tests {
         undo_stack.undo(); // pop 'b'
         assert_eq!(undo_stack.stack, vec!["a"]);
 
-        undo_stack.redo(); // restore 'b'
+        assert_eq!(undo_stack.redo(), Some(&"b")); // restore 'b'
         assert_eq!(undo_stack.stack, vec!["a", "b"]);
 
         undo_stack.push("d"); // branch: clears redo ('c' discarded)
         assert_eq!(undo_stack.stack, vec!["a", "b", "d"]);
         assert!(undo_stack.redo_stack.is_empty());
 
-        undo_stack.redo(); // no-op
+        assert_eq!(undo_stack.redo(), None); // no-op returning None
         assert_eq!(undo_stack.stack, vec!["a", "b", "d"]);
+    }
+
+    #[test]
+    fn test_history_is_empty_initially() {
+        let undo_stack: UndoStack<i32> = UndoStack::new();
+        assert_eq!(undo_stack.history(), &[]);
+    }
+
+    #[test]
+    fn test_history_reflects_pushed_items() {
+        let mut undo_stack = UndoStack::new();
+        undo_stack.push(10);
+        assert_eq!(undo_stack.history(), &[10]);
+
+        undo_stack.push(20);
+        assert_eq!(undo_stack.history(), &[10, 20]);
+
+        undo_stack.push(30);
+        assert_eq!(undo_stack.history(), &[10, 20, 30]);
+    }
+
+    #[test]
+    fn test_history_with_undo_and_redo() {
+        let mut undo_stack = UndoStack::new();
+        undo_stack.push("alpha");
+        undo_stack.push("beta");
+        undo_stack.push("gamma");
+
+        undo_stack.undo();
+        assert_eq!(undo_stack.history(), &["alpha", "beta"]);
+
+        undo_stack.undo();
+        assert_eq!(undo_stack.history(), &["alpha"]);
+
+        assert_eq!(undo_stack.redo(), Some(&"beta"));
+        assert_eq!(undo_stack.history(), &["alpha", "beta"]);
+
+        // Branching clears redo and appends new item to history
+        undo_stack.push("delta");
+        assert_eq!(undo_stack.history(), &["alpha", "beta", "delta"]);
+        assert_eq!(undo_stack.redo(), None);
     }
 }
