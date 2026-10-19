@@ -68,8 +68,10 @@ pub fn intent_to_action(intent: Intent, state: &State) -> Option<Action> {
         Intent::Down if state.cursor + 1 < state.players.len() => {
             Some(Action::SetCursor(state.cursor + 1))
         }
-        Intent::AddPlayer(name) if state.players.iter().all(|n| &name != n) => {
-            Some(Action::AddPlayer(name))
+        Intent::AddPlayer(name) => match state.players.iter().position(|n| &name == n) {
+            None => Some(Action::AddPlayer(name)),
+            Some(idx) if idx != state.cursor => Some(Action::SetCursor(idx)),
+            _ => None,
         }
         Intent::RemovePlayer if !state.players.is_empty() => {
             Some(Action::RemovePlayer(state.cursor))
@@ -169,7 +171,7 @@ mod tests {
         state.players.push("Bob".to_string());
         state.cursor = 0;
 
-        // Duplicate player rejected
+        // Duplicate player rejected and instead the cursor is moved to it.
         assert_eq!(
             intent_to_action(Intent::AddPlayer("Alice".to_string()), &state),
             None
