@@ -30,7 +30,7 @@ pub fn render(frame: &mut Frame, state: &State) {
     let area = frame.area();
 
     if state.players.is_empty() {
-        let help_text = vec![
+        let mut help_text = vec![
             Line::from(Span::styled(
                 "No players in the lobby yet.",
                 Style::default().fg(Color::DarkGray),
@@ -41,70 +41,8 @@ pub fn render(frame: &mut Frame, state: &State) {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    "  a  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Add player"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  d  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Remove player"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  j  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Move cursor down"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  k  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Move cursor up"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  u  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Undo"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  r  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Redo"),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  q  ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("Quit"),
-            ]),
         ];
+        help_text.extend(keybinding_lines());
 
         let help = Paragraph::new(help_text)
             .alignment(Alignment::Center)
@@ -182,5 +120,233 @@ pub fn prompt_player_name(terminal: &mut DefaultTerminal) -> io::Result<Option<S
                 _ => {}
             }
         }
+    }
+}
+
+/// Displays the help floating dialog listing all keybindings until dismissed.
+pub fn show_help(terminal: &mut DefaultTerminal, state: &State) -> io::Result<()> {
+    loop {
+        terminal.draw(|frame| {
+            render(frame, state);
+            render_help_dialog(frame);
+        })?;
+
+        if let Event::Key(k) = event::read()?
+            && k.kind == KeyEventKind::Press
+        {
+            match k.code {
+                KeyCode::Esc | KeyCode::Char('?' | 'q' | 'Q') | KeyCode::Enter => {
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Alias for [`show_help`].
+pub fn help_dialog(terminal: &mut DefaultTerminal, state: &State) -> io::Result<()> {
+    show_help(terminal, state)
+}
+
+/// Renders the help dialog in a centered floating window.
+pub fn render_help_dialog(frame: &mut Frame) {
+    let area = frame.area();
+    let popup_width = 40.min(area.width);
+    let popup_height = 14.min(area.height);
+    let popup_area = Rect::new(
+        (area.width.saturating_sub(popup_width)) / 2,
+        (area.height.saturating_sub(popup_height)) / 2,
+        popup_width,
+        popup_height,
+    );
+
+    let mut help_text = vec![Line::from("")];
+    help_text.extend(keybinding_lines());
+    help_text.push(Line::from(""));
+    help_text.push(Line::from(Span::styled(
+        "Press Esc or ? to close",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    frame.render_widget(Clear, popup_area);
+    let block = Block::default().borders(Borders::ALL).title("Help");
+    let dialog = Paragraph::new(help_text)
+        .alignment(Alignment::Center)
+        .block(block);
+    frame.render_widget(dialog, popup_area);
+}
+
+fn keybinding_lines() -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled(
+                "  a  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Add player"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  d  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Remove player"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  j  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Move cursor down"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  k  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Move cursor up"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  u  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Undo"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  r  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Redo"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  ?  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Help"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  q  ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Quit"),
+        ]),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn buffer_to_string(terminal: &Terminal<TestBackend>) -> String {
+        let buffer = terminal.backend().buffer();
+        let mut s = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                s.push_str(buffer[(x, y)].symbol());
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    #[test]
+    fn test_render_empty_lobby() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let state = State::new();
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        assert!(content.contains("Tournament Lobby"));
+        assert!(content.contains("No players in the lobby yet."));
+        assert!(content.contains("Keybindings:"));
+        assert!(content.contains("Help"));
+    }
+
+    #[test]
+    fn test_render_lobby_with_players() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let state = State {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            cursor: 1,
+        };
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        assert!(content.contains("Tournament Lobby (2 players)"));
+        assert!(content.contains("1. Alice"));
+        assert!(content.contains("2. Bob"));
+    }
+
+    #[test]
+    fn test_render_help_dialog() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render_help_dialog(frame)).unwrap();
+        let content = buffer_to_string(&terminal);
+        assert!(content.contains("Help"));
+        assert!(content.contains("Add player"));
+        assert!(content.contains("Remove player"));
+        assert!(content.contains("Move cursor down"));
+        assert!(content.contains("Move cursor up"));
+        assert!(content.contains("Undo"));
+        assert!(content.contains("Redo"));
+        assert!(content.contains("Quit"));
+        assert!(content.contains("Press Esc or ? to close"));
+    }
+
+    #[test]
+    fn test_render_help_dialog_over_state() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let state = State {
+            players: vec!["Alice".to_string()],
+            cursor: 0,
+        };
+
+        terminal
+            .draw(|frame| {
+                render(frame, &state);
+                render_help_dialog(frame);
+            })
+            .unwrap();
+        let content = buffer_to_string(&terminal);
+        // The background has the tournament lobby
+        assert!(content.contains("Tournament Lobby (1 players)"));
+        // And the floating dialog is rendered
+        assert!(content.contains("Help"));
+        assert!(content.contains("Press Esc or ? to close"));
+    }
+
+    #[test]
+    fn test_render_help_dialog_small_screen() {
+        let backend = TestBackend::new(20, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render_help_dialog(frame)).unwrap();
     }
 }

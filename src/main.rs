@@ -34,7 +34,7 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
         {
             match k.code {
                 KeyCode::Char('q') => return Ok(()),
-                KeyCode::Char('h') => todo!("show help floating window"),
+                KeyCode::Char('?') => render::help_dialog(terminal, &state)?,
 
                 KeyCode::Char('u') => {
                     actions.undo();
