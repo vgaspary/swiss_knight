@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
 
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     let mut actions = UndoStack::new();
-    let mut state = State::new();
+    let mut state = State::default();
 
     loop {
         terminal.draw(|frame| render::render(frame, &state))?;

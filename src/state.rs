@@ -9,113 +9,135 @@ pub enum Intent {
     RemovePlayer,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     AddPlayer(String),
     RemovePlayer(usize),
     SetCursor(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchResult {
+    WinP1,
+    Draw,
+    WinP2,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Match {
+    p1: usize,
+    p2: usize,
+    result: Option<MatchResult>,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct State {
-    pub players: Vec<String>,
-    pub cursor: usize,
+struct Round(Vec<Match>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum State {
+    Lobby {
+        players: Vec<String>,
+        cursor: usize,
+    },
+    InProgress {
+        players: Vec<String>,
+        cursor: usize,
+        rounds: Vec<Round>,
+    },
 }
 
-impl State {
-    pub fn new() -> State {
-        State {
+impl Default for State {
+    fn default() -> Self {
+        Self::Lobby {
             players: vec![],
             cursor: 0,
         }
     }
 }
 
-pub fn do_action(State { players, .. }: State, action: &Action) -> State {
-    match action {
-        Action::SetCursor(idx) => State {
-            players,
-            cursor: *idx,
+pub fn do_action(state: State, action: &Action) -> State {
+    match state {
+        State::Lobby { players, .. } => match action {
+            Action::SetCursor(idx) => State::Lobby {
+                players,
+                cursor: *idx,
+            },
+            Action::AddPlayer(name) => {
+                let mut players = players;
+                players.push(name.clone());
+                let cursor = players.len() - 1;
+                State::Lobby { players, cursor }
+            }
+            Action::RemovePlayer(idx) => {
+                let mut new_players = Vec::with_capacity(players.len().saturating_sub(1));
+                new_players.extend_from_slice(&players[0..*idx]);
+                new_players.extend_from_slice(&players[idx + 1..]);
+                let players = new_players;
+                let cursor = if players.is_empty() {
+                    0
+                } else {
+                    (*idx).min(players.len() - 1)
+                };
+                State::Lobby { players, cursor }
+            }
         },
-        Action::AddPlayer(name) => {
-            let mut players = players;
-            players.push(name.clone());
-            let cursor = players.len() - 1;
-            State { players, cursor }
-        }
-        Action::RemovePlayer(idx) => {
-            let mut new_players = Vec::with_capacity(players.len().saturating_sub(1));
-            new_players.extend_from_slice(&players[0..*idx]);
-            new_players.extend_from_slice(&players[idx + 1..]);
-            let players = new_players;
-            let cursor = if players.is_empty() {
-                0
-            } else {
-                (*idx).min(players.len() - 1)
-            };
-            State { players, cursor }
-        }
+        _ => todo!("not implemented"),
     }
 }
 
 pub fn undo_action(actions: &[Action]) -> State {
-    actions.iter().fold(State::new(), |s, a| do_action(s, a))
+    actions.iter().fold(State::default(), do_action)
 }
 
 pub fn intent_to_action(intent: Intent, state: &State) -> Option<Action> {
-    match intent {
-        Intent::Up if state.cursor > 0 => Some(Action::SetCursor(state.cursor - 1)),
-        Intent::Down if state.cursor + 1 < state.players.len() => {
-            Some(Action::SetCursor(state.cursor + 1))
-        }
-        Intent::AddPlayer(name) => match state.players.iter().position(|n| &name == n) {
-            None => Some(Action::AddPlayer(name)),
-            Some(idx) if idx != state.cursor => Some(Action::SetCursor(idx)),
+    match state {
+        State::Lobby { players, cursor } => match intent {
+            Intent::Up if *cursor > 0 => Some(Action::SetCursor(cursor - 1)),
+            Intent::Down if cursor + 1 < players.len() => Some(Action::SetCursor(cursor + 1)),
+            Intent::AddPlayer(name) => match players.iter().position(|n| &name == n) {
+                None => Some(Action::AddPlayer(name)),
+                Some(idx) if idx != *cursor => Some(Action::SetCursor(idx)),
+                _ => None,
+            },
+            Intent::RemovePlayer if !players.is_empty() => Some(Action::RemovePlayer(*cursor)),
             _ => None,
-        }
-        Intent::RemovePlayer if !state.players.is_empty() => {
-            Some(Action::RemovePlayer(state.cursor))
-        }
-        _ => None,
+        },
+        _ => todo!("not implemented"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn test_new_state_is_empty() {
-        let state = State::new();
-        assert!(state.players.is_empty());
-        assert_eq!(state.cursor, 0);
+        let state = State::default();
+        assert_matches!(state, State::Lobby { players, cursor } if players.is_empty() && cursor == 0);
     }
 
     #[test]
     fn test_do_action_add_player() {
-        let state = State::new();
+        let state = State::default();
         let state = do_action(state, &Action::AddPlayer("Alice".to_string()));
-        assert_eq!(state.players, vec!["Alice".to_string()]);
-        assert_eq!(state.cursor, 0);
+        assert_matches!(state, State::Lobby { ref players, cursor } if players == &["Alice"] && cursor == 0);
 
         let state = do_action(state, &Action::AddPlayer("Bob".to_string()));
-        assert_eq!(state.players, vec!["Alice".to_string(), "Bob".to_string()]);
-        assert_eq!(state.cursor, 1);
+        assert_matches!(state, State::Lobby { ref players, cursor } if players == &["Alice", "Bob"] && cursor == 1);
     }
 
     #[test]
     fn test_do_action_set_cursor() {
-        let state = State {
+        let state = State::Lobby {
             players: vec!["Alice".to_string(), "Bob".to_string()],
             cursor: 1,
         };
         let state = do_action(state, &Action::SetCursor(0));
-        assert_eq!(state.cursor, 0);
+        assert_matches!(state, State::Lobby { cursor, .. } if cursor == 0);
     }
 
     #[test]
     fn test_do_action_remove_player() {
-        let state = State {
+        let state = State::Lobby {
             players: vec![
                 "Alice".to_string(),
                 "Bob".to_string(),
@@ -124,20 +146,15 @@ mod tests {
             cursor: 2,
         };
         let state = do_action(state, &Action::RemovePlayer(1));
-        assert_eq!(
-            state.players,
-            vec!["Alice".to_string(), "Charlie".to_string()]
-        );
-        assert_eq!(state.cursor, 1);
+        assert_matches!(state, State::Lobby { ref players, cursor } if players == &["Alice", "Charlie"] && cursor == 1);
 
         // Removing the last remaining player
-        let single_player = State {
+        let single_player = State::Lobby {
             players: vec!["Alice".to_string()],
             cursor: 0,
         };
         let empty = do_action(single_player, &Action::RemovePlayer(0));
-        assert!(empty.players.is_empty());
-        assert_eq!(empty.cursor, 0);
+        assert_matches!(empty, State::Lobby { players, cursor } if players.is_empty() && cursor == 0);
     }
 
     #[test]
@@ -148,13 +165,12 @@ mod tests {
             Action::SetCursor(0),
         ];
         let state = undo_action(&actions);
-        assert_eq!(state.players, vec!["Alice".to_string(), "Bob".to_string()]);
-        assert_eq!(state.cursor, 0);
+        assert_matches!(state, State::Lobby { ref players, cursor } if players == &["Alice", "Bob"] && cursor == 0);
     }
 
     #[test]
     fn test_intent_to_action() {
-        let mut state = State::new();
+        let mut state = State::default();
 
         // Empty state
         assert_eq!(intent_to_action(Intent::Up, &state), None);
@@ -167,9 +183,10 @@ mod tests {
             Some(Action::AddPlayer("Alice".to_string()))
         );
 
-        state.players.push("Alice".to_string());
-        state.players.push("Bob".to_string());
-        state.cursor = 0;
+        state = State::Lobby {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            cursor: 0,
+        };
 
         // Duplicate player rejected and instead the cursor is moved to it.
         assert_eq!(
@@ -184,7 +201,10 @@ mod tests {
             Some(Action::SetCursor(1))
         );
 
-        state.cursor = 1;
+        state = State::Lobby {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            cursor: 1,
+        };
         assert_eq!(
             intent_to_action(Intent::Up, &state),
             Some(Action::SetCursor(0))

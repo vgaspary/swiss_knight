@@ -29,53 +29,57 @@ use std::io;
 pub fn render(frame: &mut Frame, state: &State) {
     let area = frame.area();
 
-    if state.players.is_empty() {
-        let mut help_text = vec![
-            Line::from(Span::styled(
-                "No players in the lobby yet.",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Keybindings:",
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-        help_text.extend(keybinding_lines());
+    match state {
+        State::Lobby { players, cursor } => {
+            if players.is_empty() {
+                let mut help_text = vec![
+                    Line::from(Span::styled(
+                        "No players in the lobby yet.",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Keybindings:",
+                        Style::default().add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(""),
+                ];
+                help_text.extend(keybinding_lines());
 
-        let help = Paragraph::new(help_text)
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Tournament Lobby"),
-            );
-        frame.render_widget(help, area);
-    } else {
-        let items: Vec<ListItem> = state
-            .players
-            .iter()
-            .enumerate()
-            .map(|(i, name)| ListItem::new(format!("{}. {}", i + 1, name)))
-            .collect();
+                let help = Paragraph::new(help_text)
+                    .alignment(Alignment::Center)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Tournament Lobby"),
+                    );
+                frame.render_widget(help, area);
+            } else {
+                let items: Vec<ListItem> = players
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| ListItem::new(format!("{}. {}", i + 1, name)))
+                    .collect();
 
-        let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(format!(
-                "Tournament Lobby ({} players)",
-                state.players.len()
-            )))
-            .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::REVERSED)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol("> ");
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(format!(
+                        "Tournament Lobby ({} players)",
+                        players.len()
+                    )))
+                    .highlight_style(
+                        Style::default()
+                            .add_modifier(Modifier::REVERSED)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
 
-        let mut list_state = ListState::default();
-        list_state.select(Some(state.cursor.min(state.players.len() - 1)));
+                let mut list_state = ListState::default();
+                list_state.select(Some((*cursor).min(players.len() - 1)));
 
-        frame.render_stateful_widget(list, area, &mut list_state);
+                frame.render_stateful_widget(list, area, &mut list_state);
+            }
+        }
+        _ => todo!("render not implemented for this state"),
     }
 }
 
@@ -276,7 +280,7 @@ mod tests {
     fn test_render_empty_lobby() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = State::new();
+        let state = State::default();
 
         terminal.draw(|frame| render(frame, &state)).unwrap();
         let content = buffer_to_string(&terminal);
@@ -290,7 +294,7 @@ mod tests {
     fn test_render_lobby_with_players() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = State {
+        let state = State::Lobby {
             players: vec!["Alice".to_string(), "Bob".to_string()],
             cursor: 1,
         };
@@ -324,7 +328,7 @@ mod tests {
     fn test_render_help_dialog_over_state() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = State {
+        let state = State::Lobby {
             players: vec!["Alice".to_string()],
             cursor: 0,
         };
