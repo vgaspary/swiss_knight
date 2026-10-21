@@ -68,6 +68,7 @@ fn key_to_intent(terminal: &mut DefaultTerminal, key_code: KeyCode) -> Option<In
         KeyCode::Char('d') => Some(Intent::RemovePlayer),
         KeyCode::Char('k') => Some(Intent::Up),
         KeyCode::Char('j') => Some(Intent::Down),
+        KeyCode::Char('s') => Some(Intent::StartTournament),
         _ => None,
     }
 }

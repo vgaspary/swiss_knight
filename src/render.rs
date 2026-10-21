@@ -6,6 +6,9 @@ use ratatui::crossterm::event::Event;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::crossterm::event::KeyEventKind;
 use ratatui::layout::Alignment;
+use ratatui::layout::Constraint;
+use ratatui::layout::Direction;
+use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
@@ -62,10 +65,11 @@ pub fn render(frame: &mut Frame, state: &State) {
                     .collect();
 
                 let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title(format!(
-                        "Tournament Lobby ({} players)",
-                        players.len()
-                    )))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(format!("Tournament Lobby ({} players)", players.len())),
+                    )
                     .highlight_style(
                         Style::default()
                             .add_modifier(Modifier::REVERSED)
@@ -79,8 +83,112 @@ pub fn render(frame: &mut Frame, state: &State) {
                 frame.render_stateful_widget(list, area, &mut list_state);
             }
         }
-        _ => todo!("render not implemented for this state"),
+        State::InProgress {
+            players,
+            cursor,
+            rounds,
+        } => {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+                .split(area);
+
+            render_scoreboard(frame, players, chunks[0]);
+            render_rounds(frame, players, rounds, *cursor, chunks[1]);
+        }
     }
+}
+
+/// Renders the scoreboard panel: players sorted by score descending.
+fn render_scoreboard(frame: &mut Frame, players: &[(String, crate::state::Score)], area: Rect) {
+    let mut ranked: Vec<(usize, &str, &crate::state::Score)> = players
+        .iter()
+        .enumerate()
+        .map(|(i, (name, score))| (i, name.as_str(), score))
+        .collect();
+    // Sort by score descending, then name ascending for stability.
+    ranked.sort_by(|a, b| b.2.cmp(a.2).then(a.1.cmp(b.1)));
+
+    let items: Vec<ListItem> = ranked
+        .iter()
+        .map(|(_, name, score)| {
+            let half_points = score.0;
+            let score_str = if half_points % 2 == 0 {
+                format!("{}.0", half_points / 2)
+            } else {
+                format!("{}.5", half_points / 2)
+            };
+            let width = area.width.saturating_sub(4) as usize; // borders + padding
+            let name_width = width.saturating_sub(score_str.len() + 1);
+            ListItem::new(format!("{:<name_width$} {score_str}", name))
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Scoreboard"),
+    );
+    frame.render_widget(list, area);
+}
+
+/// Renders the rounds/matches panel.
+///
+/// The list is a flat tree: round headers followed by their match rows.
+/// The cursor selects among match rows only (headers are skipped).
+fn render_rounds(
+    frame: &mut Frame,
+    players: &[(String, crate::state::Score)],
+    rounds: &[crate::state::Round],
+    cursor: usize,
+    area: Rect,
+) {
+    // Build a flat list of displayable rows, tracking which are match rows.
+    let mut items: Vec<ListItem> = vec![];
+    let mut match_row_indices: Vec<usize> = vec![]; // maps match index -> flat list index
+
+    for (round_idx, round) in rounds.iter().enumerate() {
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!(" Round {}", round_idx + 1),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ))));
+
+        for m in round.matches() {
+            let p1_name = players.get(m.p1).map(|(n, _)| n.as_str()).unwrap_or("?");
+            let p2_name = players.get(m.p2).map(|(n, _)| n.as_str()).unwrap_or("?");
+            let (p1_score, p2_score) = match m.result {
+                None => (".".to_string(), ".".to_string()),
+                Some(crate::state::MatchResult::WinP1) => ("1".to_string(), "0".to_string()),
+                Some(crate::state::MatchResult::Draw) => ("0.5".to_string(), "0.5".to_string()),
+                Some(crate::state::MatchResult::WinP2) => ("0".to_string(), "1".to_string()),
+            };
+            let label = format!("   {p1_name}  {p1_score} - {p2_score}  {p2_name}");
+            match_row_indices.push(items.len());
+            items.push(ListItem::new(label));
+        }
+    }
+
+    // Map the logical cursor (match index) to the flat list index.
+    let selected_flat = match_row_indices.get(cursor).copied();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Rounds"),
+        )
+        .highlight_style(
+            Style::default()
+                .add_modifier(Modifier::REVERSED)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("> ");
+
+    let mut list_state = ListState::default();
+    list_state.select(selected_flat);
+    frame.render_stateful_widget(list, area, &mut list_state);
 }
 
 /// Prompts the user to enter a player name in a centered floating input widget.

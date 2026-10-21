@@ -7,6 +7,7 @@ pub enum Intent {
     // Lobby
     AddPlayer(String),
     RemovePlayer,
+    StartTournament,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,22 +15,34 @@ pub enum Action {
     AddPlayer(String),
     RemovePlayer(usize),
     SetCursor(usize),
+    StartTournament,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MatchResult {
+pub enum MatchResult {
     WinP1,
     Draw,
     WinP2,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Match {
-    p1: usize,
-    p2: usize,
-    result: Option<MatchResult>,
+pub struct Match {
+    pub p1: usize,
+    pub p2: usize,
+    pub result: Option<MatchResult>,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Round(Vec<Match>);
+pub struct Round(Vec<Match>);
+
+impl Round {
+    pub fn matches(&self) -> &[Match] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Score(pub usize);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
@@ -38,7 +51,7 @@ pub enum State {
         cursor: usize,
     },
     InProgress {
-        players: Vec<String>,
+        players: Vec<(String, Score)>,
         cursor: usize,
         rounds: Vec<Round>,
     },
@@ -78,6 +91,22 @@ pub fn do_action(state: State, action: &Action) -> State {
                 };
                 State::Lobby { players, cursor }
             }
+            Action::StartTournament => State::InProgress {
+                players: players.into_iter().map(|name| (name, Score(0))).collect(),
+                cursor: 0,
+                rounds: vec![Round(vec![
+                    Match {
+                        p1: 0,
+                        p2: 1,
+                        result: None,
+                    },
+                    Match {
+                        p1: 2,
+                        p2: 3,
+                        result: Some(MatchResult::WinP1),
+                    },
+                ])],
+            },
         },
         _ => todo!("not implemented"),
     }
@@ -98,6 +127,7 @@ pub fn intent_to_action(intent: Intent, state: &State) -> Option<Action> {
                 _ => None,
             },
             Intent::RemovePlayer if !players.is_empty() => Some(Action::RemovePlayer(*cursor)),
+            Intent::StartTournament if !players.is_empty() => Some(Action::StartTournament),
             _ => None,
         },
         _ => todo!("not implemented"),
