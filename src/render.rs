@@ -112,15 +112,10 @@ fn render_scoreboard(frame: &mut Frame, players: &[(String, crate::state::Score)
     let items: Vec<ListItem> = ranked
         .iter()
         .map(|(_, name, score)| {
-            let half_points = score.0;
-            let score_str = if half_points % 2 == 0 {
-                format!("{}.0", half_points / 2)
-            } else {
-                format!("{}.5", half_points / 2)
-            };
             let width = area.width.saturating_sub(4) as usize; // borders + padding
+            let score_str = score.to_string();
             let name_width = width.saturating_sub(score_str.len() + 1);
-            ListItem::new(format!("{:<name_width$} {score_str}", name))
+            ListItem::new(format!("{name:<name_width$} {score_str}"))
         })
         .collect();
 

@@ -1,5 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
+use std::fmt::Display;
+use std::ops::Add;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -44,8 +46,37 @@ impl Round {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Score(pub usize);
+/// Scores in a chess tournament are multiples of 0.5. The `usize` inside
+/// represents the score as a multiple of 0.5-s. Examples:
+///
+/// Real score | representation
+/// --------------------------
+///   0.0      |    Score(0)
+///   0.5      |    Score(1)
+///   1.0      |    Score(2)
+///   8.5      |    Score(17)
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct Score(usize);
+
+const SCORE_LOSS: Score = Score(0);
+const SCORE_DRAW: Score = Score(1);
+const SCORE_WIN: Score = Score(2);
+
+impl Display for Score {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let a = self.0 / 2;
+        let b = if self.0 % 2 == 1 { 5 } else { 0 };
+        write!(f, "{a}.{b}")
+    }
+}
+
+impl Add for Score {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
@@ -263,5 +294,19 @@ mod tests {
             intent_to_action(Intent::RemovePlayer, &state),
             Some(Action::RemovePlayer(1))
         );
+    }
+
+    #[test]
+    fn test_score_formatting() {
+        let score = Score::default();
+        assert_eq!(score, SCORE_LOSS);
+        assert_eq!(score.to_string(), "0.0");
+
+        assert_eq!(SCORE_LOSS.to_string(), "0.0");
+        assert_eq!(SCORE_DRAW.to_string(), "0.5");
+        assert_eq!(SCORE_WIN.to_string(), "1.0");
+
+        let score = SCORE_WIN + SCORE_WIN + SCORE_WIN + SCORE_DRAW;
+        assert_eq!(score.to_string(), "3.5");
     }
 }

@@ -14,7 +14,7 @@ use std::default::Default;
 /// # Examples
 ///
 /// ```ignore
-/// let mut undo_stack = UndoStack::new();
+/// let mut undo_stack = UndoStack::default();
 ///
 /// undo_stack.push("action 1");
 /// undo_stack.push("action 2");
@@ -37,7 +37,7 @@ impl<T> UndoStack<T> {
     /// # Examples
     ///
     /// ```ignore
-    /// let mut undo_stack = UndoStack::new();
+    /// let mut undo_stack = UndoStack::default();
     /// undo_stack.push(1);
     /// ```
     pub fn push(&mut self, item: T) {
@@ -52,7 +52,7 @@ impl<T> UndoStack<T> {
     /// # Examples
     ///
     /// ```ignore
-    /// let mut undo_stack = UndoStack::new();
+    /// let mut undo_stack = UndoStack::default();
     /// undo_stack.push(1);
     /// undo_stack.undo();
     /// ```
@@ -69,7 +69,7 @@ impl<T> UndoStack<T> {
     /// # Examples
     ///
     /// ```ignore
-    /// let mut undo_stack = UndoStack::new();
+    /// let mut undo_stack = UndoStack::default();
     /// undo_stack.push(1);
     /// undo_stack.undo();
     ///
@@ -91,7 +91,7 @@ impl<T> UndoStack<T> {
     /// # Examples
     ///
     /// ```ignore
-    /// let mut undo_stack = UndoStack::new();
+    /// let mut undo_stack = UndoStack::default();
     /// undo_stack.push(1);
     /// undo_stack.push(2);
     ///
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_new_is_empty() {
-        let undo_stack: UndoStack<i32> = UndoStack::new();
+        let undo_stack: UndoStack<i32> = UndoStack::default();
         assert!(undo_stack.stack.is_empty());
         assert!(undo_stack.redo_stack.is_empty());
     }
@@ -128,12 +128,12 @@ mod tests {
     #[test]
     fn test_default_is_empty() {
         let undo_stack: UndoStack<i32> = UndoStack::default();
-        assert_eq!(undo_stack, UndoStack::new());
+        assert_eq!(undo_stack, UndoStack::default());
     }
 
     #[test]
     fn test_push() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(1);
         undo_stack.push(2);
 
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_undo() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(1);
         undo_stack.push(2);
 
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_undo_on_empty_stack_is_noop() {
-        let mut undo_stack: UndoStack<i32> = UndoStack::new();
+        let mut undo_stack: UndoStack<i32> = UndoStack::default();
         undo_stack.undo();
 
         assert!(undo_stack.stack.is_empty());
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_redo() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(1);
         undo_stack.push(2);
 
@@ -185,14 +185,14 @@ mod tests {
 
     #[test]
     fn test_redo_on_empty_redo_stack_is_noop() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(1);
 
         assert_eq!(undo_stack.redo(), None);
         assert_eq!(undo_stack.stack, vec![1]);
         assert!(undo_stack.redo_stack.is_empty());
 
-        let mut empty_stack: UndoStack<i32> = UndoStack::new();
+        let mut empty_stack: UndoStack<i32> = UndoStack::default();
         assert_eq!(empty_stack.redo(), None);
         assert!(empty_stack.stack.is_empty());
         assert!(empty_stack.redo_stack.is_empty());
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_push_clears_redo_stack() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(1);
         undo_stack.push(2);
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_multiple_cycles() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push("a");
         undo_stack.push("b");
         undo_stack.push("c");
@@ -242,13 +242,13 @@ mod tests {
 
     #[test]
     fn test_history_is_empty_initially() {
-        let undo_stack: UndoStack<i32> = UndoStack::new();
+        let undo_stack: UndoStack<i32> = UndoStack::default();
         assert_eq!(undo_stack.history(), &[]);
     }
 
     #[test]
     fn test_history_reflects_pushed_items() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push(10);
         assert_eq!(undo_stack.history(), &[10]);
 
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_history_with_undo_and_redo() {
-        let mut undo_stack = UndoStack::new();
+        let mut undo_stack = UndoStack::default();
         undo_stack.push("alpha");
         undo_stack.push("beta");
         undo_stack.push("gamma");
