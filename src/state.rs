@@ -1,3 +1,6 @@
+use serde::Deserialize;
+use serde::Serialize;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
     // Navigation
@@ -18,21 +21,21 @@ pub enum Action {
     StartTournament,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MatchResult {
     WinP1,
     Draw,
     WinP2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Match {
     pub p1: usize,
     pub p2: usize,
     pub result: Option<MatchResult>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Round(Vec<Match>);
 
 impl Round {
@@ -41,10 +44,10 @@ impl Round {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Score(pub usize);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum State {
     Lobby {
         players: Vec<String>,

@@ -124,11 +124,7 @@ fn render_scoreboard(frame: &mut Frame, players: &[(String, crate::state::Score)
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Scoreboard"),
-    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title("Scoreboard"));
     frame.render_widget(list, area);
 }
 
@@ -174,11 +170,7 @@ fn render_rounds(
     let selected_flat = match_row_indices.get(cursor).copied();
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Rounds"),
-        )
+        .block(Block::default().borders(Borders::ALL).title("Rounds"))
         .highlight_style(
             Style::default()
                 .add_modifier(Modifier::REVERSED)

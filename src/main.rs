@@ -12,6 +12,7 @@ use state::State;
 use state::do_action;
 use state::intent_to_action;
 use state::undo_action;
+use std::fs::File;
 use std::io;
 use undo::UndoStack;
 
@@ -24,7 +25,7 @@ fn main() -> io::Result<()> {
 
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     let mut actions = UndoStack::new();
-    let mut state = State::default();
+    let mut state = maybe_load_state().unwrap_or_default();
 
     loop {
         terminal.draw(|frame| render::render(frame, &state))?;
@@ -33,7 +34,10 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
             && k.kind == KeyEventKind::Press
         {
             match k.code {
-                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Char('q') => {
+                    return serde_yaml::to_writer(File::create("state.yaml")?, &state)
+                        .map_err(io::Error::other);
+                }
                 KeyCode::Char('?') => render::help_dialog(terminal, &state)?,
 
                 KeyCode::Char('u') => {
@@ -71,4 +75,8 @@ fn key_to_intent(terminal: &mut DefaultTerminal, key_code: KeyCode) -> Option<In
         KeyCode::Char('s') => Some(Intent::StartTournament),
         _ => None,
     }
+}
+
+fn maybe_load_state() -> Option<State> {
+    serde_yaml::from_reader(File::open("state.yaml").ok()?).ok()
 }
