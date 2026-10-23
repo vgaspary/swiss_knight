@@ -70,48 +70,56 @@ impl Default for State {
 }
 
 pub fn do_action(state: State, action: &Action) -> State {
-    match state {
-        State::Lobby { players, .. } => match action {
-            Action::SetCursor(idx) => State::Lobby {
-                players,
-                cursor: *idx,
-            },
-            Action::AddPlayer(name) => {
-                let mut players = players;
-                players.push(name.clone());
-                let cursor = players.len() - 1;
-                State::Lobby { players, cursor }
-            }
-            Action::RemovePlayer(idx) => {
-                let mut new_players = Vec::with_capacity(players.len().saturating_sub(1));
-                new_players.extend_from_slice(&players[0..*idx]);
-                new_players.extend_from_slice(&players[idx + 1..]);
-                let players = new_players;
-                let cursor = if players.is_empty() {
-                    0
-                } else {
-                    (*idx).min(players.len() - 1)
-                };
-                State::Lobby { players, cursor }
-            }
-            Action::StartTournament => State::InProgress {
-                players: players.into_iter().map(|name| (name, Score(0))).collect(),
-                cursor: 0,
-                rounds: vec![Round(vec![
-                    Match {
-                        p1: 0,
-                        p2: 1,
-                        result: None,
-                    },
-                    Match {
-                        p1: 2,
-                        p2: 3,
-                        result: Some(MatchResult::WinP1),
-                    },
-                ])],
-            },
+    match (state, action) {
+        (State::Lobby { players, .. }, Action::SetCursor(idx)) => State::Lobby {
+            players,
+            cursor: *idx,
         },
-        _ => todo!("not implemented"),
+        (State::Lobby { players, .. }, Action::AddPlayer(name)) => {
+            let mut players = players;
+            players.push(name.clone());
+            let cursor = players.len() - 1;
+            State::Lobby { players, cursor }
+        }
+        (State::Lobby { players, .. }, Action::RemovePlayer(idx)) => {
+            let mut new_players = Vec::with_capacity(players.len().saturating_sub(1));
+            new_players.extend_from_slice(&players[0..*idx]);
+            new_players.extend_from_slice(&players[idx + 1..]);
+            let players = new_players;
+            let cursor = if players.is_empty() {
+                0
+            } else {
+                (*idx).min(players.len() - 1)
+            };
+            State::Lobby { players, cursor }
+        }
+        (State::Lobby { players, .. }, Action::StartTournament) => State::InProgress {
+            players: players.into_iter().map(|name| (name, Score(0))).collect(),
+            cursor: 0,
+            rounds: vec![Round(vec![
+                Match {
+                    p1: 0,
+                    p2: 1,
+                    result: None,
+                },
+                Match {
+                    p1: 2,
+                    p2: 3,
+                    result: Some(MatchResult::WinP1),
+                },
+            ])],
+        },
+        (
+            State::InProgress {
+                players, rounds, ..
+            },
+            Action::SetCursor(idx),
+        ) => State::InProgress {
+            players,
+            cursor: *idx,
+            rounds,
+        },
+        (state, _) => state,
     }
 }
 
@@ -133,7 +141,13 @@ pub fn intent_to_action(intent: Intent, state: &State) -> Option<Action> {
             Intent::StartTournament if !players.is_empty() => Some(Action::StartTournament),
             _ => None,
         },
-        _ => todo!("not implemented"),
+        State::InProgress { cursor, rounds, .. } => match intent {
+            Intent::Up if *cursor > 0 => Some(Action::SetCursor(cursor - 1)),
+            Intent::Down if cursor + 1 < rounds.iter().map(|r| r.0.len()).sum::<usize>() => {
+                Some(Action::SetCursor(cursor + 1))
+            }
+            _ => None,
+        },
     }
 }
 
