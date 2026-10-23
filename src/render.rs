@@ -179,37 +179,39 @@ fn render_rounds(
 }
 
 /// Prompts the user to enter a player name in a centered floating input widget.
-pub fn prompt_player_name(terminal: &mut DefaultTerminal) -> io::Result<Option<String>> {
+pub fn prompt_player_name(terminal: &mut DefaultTerminal) -> Option<String> {
     let mut player_name = String::new();
 
     loop {
-        terminal.draw(|frame| {
-            let area = frame.area();
-            let popup_width = 40.min(area.width);
-            let popup_height = 3.min(area.height);
-            let popup_area = Rect::new(
-                (area.width.saturating_sub(popup_width)) / 2,
-                (area.height.saturating_sub(popup_height)) / 2,
-                popup_width,
-                popup_height,
-            );
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                let popup_width = 40.min(area.width);
+                let popup_height = 3.min(area.height);
+                let popup_area = Rect::new(
+                    (area.width.saturating_sub(popup_width)) / 2,
+                    (area.height.saturating_sub(popup_height)) / 2,
+                    popup_width,
+                    popup_height,
+                );
 
-            frame.render_widget(Clear, popup_area);
-            let block = Block::default().borders(Borders::ALL).title("Player Name");
-            let input = Paragraph::new(player_name.as_str()).block(block);
-            frame.render_widget(input, popup_area);
+                frame.render_widget(Clear, popup_area);
+                let block = Block::default().borders(Borders::ALL).title("Player Name");
+                let input = Paragraph::new(player_name.as_str()).block(block);
+                frame.render_widget(input, popup_area);
 
-            let cursor_x = (popup_area.x + 1 + player_name.chars().count() as u16)
-                .min(popup_area.right().saturating_sub(2));
-            frame.set_cursor_position((cursor_x, popup_area.y + 1));
-        })?;
+                let cursor_x = (popup_area.x + 1 + player_name.chars().count() as u16)
+                    .min(popup_area.right().saturating_sub(2));
+                frame.set_cursor_position((cursor_x, popup_area.y + 1));
+            })
+            .ok()?;
 
-        if let Event::Key(k) = event::read()?
+        if let Event::Key(k) = event::read().ok()?
             && k.kind == KeyEventKind::Press
         {
             match k.code {
-                KeyCode::Enter => return Ok(Some(player_name)),
-                KeyCode::Esc => return Ok(None),
+                KeyCode::Enter => return Some(player_name),
+                KeyCode::Esc => return None,
                 KeyCode::Backspace => {
                     player_name.pop();
                 }

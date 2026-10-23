@@ -10,7 +10,7 @@ pub enum Intent {
     Down,
 
     // Lobby
-    AddPlayer(String),
+    AddPlayer,
     RemovePlayer,
     StartTournament,
 }
@@ -158,16 +158,22 @@ pub fn replay(actions: &[Action]) -> State {
     actions.iter().fold(State::default(), do_action)
 }
 
-pub fn intent_to_action(intent: Intent, state: &State) -> Option<Action> {
+pub fn intent_to_action<F: FnOnce() -> Option<String>>(
+    intent: Intent,
+    state: &State,
+    prompt_player_name: F,
+) -> Option<Action> {
     match state {
         State::Lobby { players, cursor } => match intent {
             Intent::Up if *cursor > 0 => Some(Action::SetCursor(cursor - 1)),
             Intent::Down if cursor + 1 < players.len() => Some(Action::SetCursor(cursor + 1)),
-            Intent::AddPlayer(name) => match players.iter().position(|n| &name == n) {
-                None => Some(Action::AddPlayer(name)),
-                Some(idx) if idx != *cursor => Some(Action::SetCursor(idx)),
-                _ => None,
-            },
+            Intent::AddPlayer => prompt_player_name().and_then(|name| {
+                match players.iter().position(|n| &name == n) {
+                    None => Some(Action::AddPlayer(name)),
+                    Some(idx) if idx != *cursor => Some(Action::SetCursor(idx)),
+                    _ => None,
+                }
+            }),
             Intent::RemovePlayer if !players.is_empty() => Some(Action::RemovePlayer(*cursor)),
             Intent::StartTournament if !players.is_empty() => Some(Action::StartTournament),
             _ => None,
@@ -247,17 +253,34 @@ mod tests {
     }
 
     #[test]
+    fn test_score_formatting() {
+        let score = Score::default();
+        assert_eq!(score, SCORE_LOSS);
+        assert_eq!(score.to_string(), "0.0");
+
+        assert_eq!(SCORE_LOSS.to_string(), "0.0");
+        assert_eq!(SCORE_DRAW.to_string(), "0.5");
+        assert_eq!(SCORE_WIN.to_string(), "1.0");
+
+        let score = SCORE_WIN + SCORE_WIN + SCORE_WIN + SCORE_DRAW;
+        assert_eq!(score.to_string(), "3.5");
+    }
+
+    #[test]
     fn test_intent_to_action() {
         let mut state = State::default();
 
         // Empty state
-        assert_eq!(intent_to_action(Intent::Up, &state), None);
-        assert_eq!(intent_to_action(Intent::Down, &state), None);
-        assert_eq!(intent_to_action(Intent::RemovePlayer, &state), None);
+        assert_eq!(intent_to_action(Intent::Up, &state, || None), None);
+        assert_eq!(intent_to_action(Intent::Down, &state, || None), None);
+        assert_eq!(
+            intent_to_action(Intent::RemovePlayer, &state, || None),
+            None
+        );
 
         // Add unique player
         assert_eq!(
-            intent_to_action(Intent::AddPlayer("Alice".to_string()), &state),
+            intent_to_action(Intent::AddPlayer, &state, || Some("Alice".to_string())),
             Some(Action::AddPlayer("Alice".to_string()))
         );
 
@@ -268,14 +291,14 @@ mod tests {
 
         // Duplicate player rejected and instead the cursor is moved to it.
         assert_eq!(
-            intent_to_action(Intent::AddPlayer("Alice".to_string()), &state),
+            intent_to_action(Intent::AddPlayer, &state, || Some("Alice".to_string())),
             None
         );
 
         // Navigation
-        assert_eq!(intent_to_action(Intent::Up, &state), None);
+        assert_eq!(intent_to_action(Intent::Up, &state, || None), None);
         assert_eq!(
-            intent_to_action(Intent::Down, &state),
+            intent_to_action(Intent::Down, &state, || None),
             Some(Action::SetCursor(1))
         );
 
@@ -284,14 +307,14 @@ mod tests {
             cursor: 1,
         };
         assert_eq!(
-            intent_to_action(Intent::Up, &state),
+            intent_to_action(Intent::Up, &state, || None),
             Some(Action::SetCursor(0))
         );
-        assert_eq!(intent_to_action(Intent::Down, &state), None);
+        assert_eq!(intent_to_action(Intent::Down, &state, || None), None);
 
         // Remove
         assert_eq!(
-            intent_to_action(Intent::RemovePlayer, &state),
+            intent_to_action(Intent::RemovePlayer, &state, || None),
             Some(Action::RemovePlayer(1))
         );
     }

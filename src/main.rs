@@ -51,9 +51,9 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                 }
 
                 key_code => {
-                    if let Some(action) = key_to_intent(terminal, key_code)
-                        .and_then(|intent| intent_to_action(intent, &state))
-                    {
+                    if let Some(action) = key_to_intent(key_code).and_then(|intent| {
+                        intent_to_action(intent, &state, || render::prompt_player_name(terminal))
+                    }) {
                         state = do_action(state, &action);
                         actions.push(action);
                     }
@@ -63,12 +63,9 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
     }
 }
 
-fn key_to_intent(terminal: &mut DefaultTerminal, key_code: KeyCode) -> Option<Intent> {
+pub fn key_to_intent(key_code: KeyCode) -> Option<Intent> {
     match key_code {
-        KeyCode::Char('a') => render::prompt_player_name(terminal)
-            .ok()
-            .flatten()
-            .map(Intent::AddPlayer),
+        KeyCode::Char('a') => Some(Intent::AddPlayer),
         KeyCode::Char('d') => Some(Intent::RemovePlayer),
         KeyCode::Char('k') => Some(Intent::Up),
         KeyCode::Char('j') => Some(Intent::Down),
