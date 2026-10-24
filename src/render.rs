@@ -86,15 +86,18 @@ pub fn render(frame: &mut Frame, state: &State) {
         State::InProgress {
             players,
             cursor,
-            rounds,
+            prev_rounds,
+            current_round,
         } => {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
                 .split(area);
 
+            let mut rounds = prev_rounds.clone();
+            rounds.push(current_round.clone());
             render_scoreboard(frame, players, chunks[0]);
-            render_rounds(frame, players, rounds, *cursor, chunks[1]);
+            render_rounds(frame, players, &rounds, *cursor, chunks[1]);
         }
     }
 }
@@ -146,17 +149,22 @@ fn render_rounds(
                 .add_modifier(Modifier::BOLD),
         ))));
 
-        for m in round.matches() {
+        for m in &round.matches {
             let p1_name = players.get(m.p1).map(|(n, _)| n.as_str()).unwrap_or("?");
             let p2_name = players.get(m.p2).map(|(n, _)| n.as_str()).unwrap_or("?");
             let (p1_score, p2_score) = match m.result {
                 None => (".".to_string(), ".".to_string()),
-                Some(crate::state::MatchResult::WinP1) => ("1".to_string(), "0".to_string()),
+                Some(crate::state::MatchResult::WinP1) => ("1.0".to_string(), "0.0".to_string()),
                 Some(crate::state::MatchResult::Draw) => ("0.5".to_string(), "0.5".to_string()),
-                Some(crate::state::MatchResult::WinP2) => ("0".to_string(), "1".to_string()),
+                Some(crate::state::MatchResult::WinP2) => ("0.0".to_string(), "1.0".to_string()),
             };
             let label = format!("   {p1_name}  {p1_score} - {p2_score}  {p2_name}");
             match_row_indices.push(items.len());
+            items.push(ListItem::new(label));
+        }
+
+        if let Some(player) = round.bye {
+            let label = format!("   {player}  1.0");
             items.push(ListItem::new(label));
         }
     }

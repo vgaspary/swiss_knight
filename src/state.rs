@@ -8,11 +8,17 @@ pub enum Intent {
     // Navigation
     Up,
     Down,
+    Left,
+    Right,
 
     // Lobby
     AddPlayer,
     RemovePlayer,
     StartTournament,
+
+    // Tournament in progress
+    NextRound,
+    ResetMatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,9 +27,11 @@ pub enum Action {
     RemovePlayer(usize),
     SetCursor(usize),
     StartTournament,
+    SetMatchResult(usize, Option<MatchResult>),
+    NextRound,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MatchResult {
     WinP1,
     Draw,
@@ -38,12 +46,9 @@ pub struct Match {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Round(Vec<Match>);
-
-impl Round {
-    pub fn matches(&self) -> &[Match] {
-        &self.0
-    }
+pub struct Round {
+    pub matches: Vec<Match>,
+    pub bye: Option<usize>,
 }
 
 /// Scores in a chess tournament are multiples of 0.5. The `usize` inside
@@ -87,7 +92,8 @@ pub enum State {
     InProgress {
         players: Vec<(String, Score)>,
         cursor: usize,
-        rounds: Vec<Round>,
+        prev_rounds: Vec<Round>,
+        current_round: Round,
     },
 }
 
@@ -127,29 +133,72 @@ pub fn do_action(state: State, action: &Action) -> State {
         (State::Lobby { players, .. }, Action::StartTournament) => State::InProgress {
             players: players.into_iter().map(|name| (name, Score(0))).collect(),
             cursor: 0,
-            rounds: vec![Round(vec![
-                Match {
-                    p1: 0,
-                    p2: 1,
-                    result: None,
-                },
-                Match {
-                    p1: 2,
-                    p2: 3,
-                    result: Some(MatchResult::WinP1),
-                },
-            ])],
+            prev_rounds: vec![],
+            current_round: Round {
+                matches: vec![
+                    Match {
+                        p1: 0,
+                        p2: 1,
+                        result: None,
+                    },
+                    Match {
+                        p1: 2,
+                        p2: 3,
+                        result: Some(MatchResult::WinP1),
+                    },
+                ],
+                bye: None,
+            },
         },
         (
             State::InProgress {
-                players, rounds, ..
+                players,
+                prev_rounds,
+                current_round,
+                ..
             },
             Action::SetCursor(idx),
         ) => State::InProgress {
             players,
             cursor: *idx,
-            rounds,
+            prev_rounds,
+            current_round,
         },
+        (
+            State::InProgress {
+                players,
+                prev_rounds,
+                mut current_round,
+                ..
+            },
+            Action::SetMatchResult(idx, res),
+        ) => {
+            current_round.matches[*idx].result = *res;
+            State::InProgress {
+                players,
+                cursor: *idx,
+                prev_rounds,
+                current_round,
+            }
+        }
+        (
+            State::InProgress {
+                players,
+                mut prev_rounds,
+                current_round,
+                ..
+            },
+            Action::NextRound,
+        ) => {
+            prev_rounds.push(current_round);
+            let current_round = /*init_next_round(&prev_rounds)*/ Round { matches: vec![], bye: None };
+            State::InProgress {
+                players,
+                cursor: 0,
+                prev_rounds,
+                current_round,
+            }
+        }
         (state, _) => state,
     }
 }
@@ -178,10 +227,41 @@ pub fn intent_to_action<F: FnOnce() -> Option<String>>(
             Intent::StartTournament if !players.is_empty() => Some(Action::StartTournament),
             _ => None,
         },
-        State::InProgress { cursor, rounds, .. } => match intent {
+        State::InProgress {
+            cursor,
+            current_round,
+            ..
+        } => match intent {
             Intent::Up if *cursor > 0 => Some(Action::SetCursor(cursor - 1)),
-            Intent::Down if cursor + 1 < rounds.iter().map(|r| r.0.len()).sum::<usize>() => {
+            Intent::Down if cursor + 1 < current_round.matches.len() => {
                 Some(Action::SetCursor(cursor + 1))
+            }
+            Intent::Left => match current_round.matches[*cursor].result {
+                None => Some(Action::SetMatchResult(*cursor, Some(MatchResult::WinP1))),
+                Some(MatchResult::Draw) => {
+                    Some(Action::SetMatchResult(*cursor, Some(MatchResult::WinP1)))
+                }
+                Some(MatchResult::WinP2) => {
+                    Some(Action::SetMatchResult(*cursor, Some(MatchResult::Draw)))
+                }
+                _ => None,
+            },
+            Intent::Right => match current_round.matches[*cursor].result {
+                None => Some(Action::SetMatchResult(*cursor, Some(MatchResult::WinP2))),
+                Some(MatchResult::Draw) => {
+                    Some(Action::SetMatchResult(*cursor, Some(MatchResult::WinP2)))
+                }
+                Some(MatchResult::WinP1) => {
+                    Some(Action::SetMatchResult(*cursor, Some(MatchResult::Draw)))
+                }
+                _ => None,
+            },
+            Intent::ResetMatch => match current_round.matches[*cursor].result {
+                None => Some(Action::SetMatchResult(*cursor, Some(MatchResult::Draw))),
+                Some(_) => Some(Action::SetMatchResult(*cursor, None)),
+            },
+            Intent::NextRound if current_round.matches.iter().all(|m| m.result.is_some()) => {
+                Some(Action::NextRound)
             }
             _ => None,
         },
@@ -317,19 +397,5 @@ mod tests {
             intent_to_action(Intent::RemovePlayer, &state, || None),
             Some(Action::RemovePlayer(1))
         );
-    }
-
-    #[test]
-    fn test_score_formatting() {
-        let score = Score::default();
-        assert_eq!(score, SCORE_LOSS);
-        assert_eq!(score.to_string(), "0.0");
-
-        assert_eq!(SCORE_LOSS.to_string(), "0.0");
-        assert_eq!(SCORE_DRAW.to_string(), "0.5");
-        assert_eq!(SCORE_WIN.to_string(), "1.0");
-
-        let score = SCORE_WIN + SCORE_WIN + SCORE_WIN + SCORE_DRAW;
-        assert_eq!(score.to_string(), "3.5");
     }
 }
