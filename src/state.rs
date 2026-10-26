@@ -1,7 +1,10 @@
+use crate::swiss::init_first_round;
+use crate::swiss::init_next_round;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Display;
 use std::ops::Add;
+use std::ops::AddAssign;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Intent {
@@ -45,6 +48,24 @@ pub struct Match {
     pub result: Option<MatchResult>,
 }
 
+impl Match {
+    pub fn p1_score(&self) -> Option<Score> {
+        self.result.map(|res| match res {
+            MatchResult::WinP1 => SCORE_WIN,
+            MatchResult::WinP2 => SCORE_LOSS,
+            MatchResult::Draw => SCORE_DRAW,
+        })
+    }
+
+    pub fn p2_score(&self) -> Option<Score> {
+        self.result.map(|res| match res {
+            MatchResult::WinP1 => SCORE_LOSS,
+            MatchResult::WinP2 => SCORE_WIN,
+            MatchResult::Draw => SCORE_DRAW,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Round {
     pub matches: Vec<Match>,
@@ -60,12 +81,12 @@ pub struct Round {
 ///   0.5      |    Score(1)
 ///   1.0      |    Score(2)
 ///   8.5      |    Score(17)
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct Score(usize);
 
-const SCORE_LOSS: Score = Score(0);
-const SCORE_DRAW: Score = Score(1);
-const SCORE_WIN: Score = Score(2);
+pub const SCORE_LOSS: Score = Score(0);
+pub const SCORE_DRAW: Score = Score(1);
+pub const SCORE_WIN: Score = Score(2);
 
 impl Display for Score {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -83,6 +104,12 @@ impl Add for Score {
     }
 }
 
+impl AddAssign for Score {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     Lobby {
@@ -90,7 +117,7 @@ pub enum State {
         cursor: usize,
     },
     InProgress {
-        players: Vec<(String, Score)>,
+        players: Vec<String>,
         cursor: usize,
         prev_rounds: Vec<Round>,
         current_round: Round,
@@ -130,26 +157,15 @@ pub fn do_action(state: State, action: &Action) -> State {
             };
             State::Lobby { players, cursor }
         }
-        (State::Lobby { players, .. }, Action::StartTournament) => State::InProgress {
-            players: players.into_iter().map(|name| (name, Score(0))).collect(),
-            cursor: 0,
-            prev_rounds: vec![],
-            current_round: Round {
-                matches: vec![
-                    Match {
-                        p1: 0,
-                        p2: 1,
-                        result: None,
-                    },
-                    Match {
-                        p1: 2,
-                        p2: 3,
-                        result: Some(MatchResult::WinP1),
-                    },
-                ],
-                bye: None,
-            },
-        },
+        (State::Lobby { players, .. }, Action::StartTournament) => {
+            let num_players = players.len();
+            State::InProgress {
+                players,
+                cursor: 0,
+                prev_rounds: vec![],
+                current_round: init_first_round(num_players),
+            }
+        }
         (
             State::InProgress {
                 players,
@@ -191,7 +207,7 @@ pub fn do_action(state: State, action: &Action) -> State {
             Action::NextRound,
         ) => {
             prev_rounds.push(current_round);
-            let current_round = /*init_next_round(&prev_rounds)*/ Round { matches: vec![], bye: None };
+            let current_round = init_next_round(&prev_rounds);
             State::InProgress {
                 players,
                 cursor: 0,

@@ -1,5 +1,6 @@
 mod render;
 mod state;
+mod swiss;
 mod undo;
 
 use ratatui::DefaultTerminal;

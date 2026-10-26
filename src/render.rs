@@ -1,3 +1,4 @@
+use crate::state::Score;
 use crate::state::State;
 use ratatui::DefaultTerminal;
 use ratatui::Frame;
@@ -22,6 +23,7 @@ use ratatui::widgets::List;
 use ratatui::widgets::ListItem;
 use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
+use std::collections::HashMap;
 use std::io;
 
 /// Renders the tournament lobby state.
@@ -94,23 +96,35 @@ pub fn render(frame: &mut Frame, state: &State) {
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
                 .split(area);
 
+            let scores = crate::swiss::score(prev_rounds, Some(current_round));
             let mut rounds = prev_rounds.clone();
             rounds.push(current_round.clone());
-            render_scoreboard(frame, players, chunks[0]);
+            render_scoreboard(frame, players, scores, chunks[0]);
             render_rounds(frame, players, &rounds, *cursor, chunks[1]);
         }
     }
 }
 
 /// Renders the scoreboard panel: players sorted by score descending.
-fn render_scoreboard(frame: &mut Frame, players: &[(String, crate::state::Score)], area: Rect) {
-    let mut ranked: Vec<(usize, &str, &crate::state::Score)> = players
+fn render_scoreboard(
+    frame: &mut Frame,
+    players: &[String],
+    scores: HashMap<usize, Score>,
+    area: Rect,
+) {
+    let mut ranked: Vec<(usize, &str, Score)> = players
         .iter()
         .enumerate()
-        .map(|(i, (name, score))| (i, name.as_str(), score))
+        .map(|(i, name)| {
+            (
+                i,
+                name.as_str(),
+                scores.get(&i).cloned().unwrap_or_default(),
+            )
+        })
         .collect();
     // Sort by score descending, then name ascending for stability.
-    ranked.sort_by(|a, b| b.2.cmp(a.2).then(a.1.cmp(b.1)));
+    ranked.sort_by(|a, b| b.2.cmp(&a.2).then(a.1.cmp(b.1)));
 
     let items: Vec<ListItem> = ranked
         .iter()
@@ -132,7 +146,7 @@ fn render_scoreboard(frame: &mut Frame, players: &[(String, crate::state::Score)
 /// The cursor selects among match rows only (headers are skipped).
 fn render_rounds(
     frame: &mut Frame,
-    players: &[(String, crate::state::Score)],
+    players: &[String],
     rounds: &[crate::state::Round],
     cursor: usize,
     area: Rect,
@@ -150,8 +164,8 @@ fn render_rounds(
         ))));
 
         for m in &round.matches {
-            let p1_name = players.get(m.p1).map(|(n, _)| n.as_str()).unwrap_or("?");
-            let p2_name = players.get(m.p2).map(|(n, _)| n.as_str()).unwrap_or("?");
+            let p1_name = players.get(m.p1).map(|n| n.as_str()).unwrap_or("?");
+            let p2_name = players.get(m.p2).map(|n| n.as_str()).unwrap_or("?");
             let (p1_score, p2_score) = match m.result {
                 None => (".".to_string(), ".".to_string()),
                 Some(crate::state::MatchResult::WinP1) => ("1.0".to_string(), "0.0".to_string()),
