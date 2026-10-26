@@ -7,11 +7,11 @@ use ratatui::crossterm::event;
 use ratatui::crossterm::event::Event;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::crossterm::event::KeyEventKind;
+use state::Action;
 use state::Intent;
-use state::State;
 use state::do_action;
 use state::intent_to_action;
-use state::undo_action;
+use state::replay;
 use std::fs::File;
 use std::io;
 use undo::UndoStack;
@@ -24,8 +24,8 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut actions = UndoStack::new();
-    let mut state = maybe_load_state().unwrap_or_default();
+    let mut actions = maybe_load_actions().unwrap_or_default();
+    let mut state = replay(actions.history());
 
     loop {
         terminal.draw(|frame| render::render(frame, &state))?;
@@ -35,14 +35,14 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
         {
             match k.code {
                 KeyCode::Char('q') => {
-                    return serde_yaml::to_writer(File::create("state.yaml")?, &state)
+                    return serde_yaml::to_writer(File::create("actions.yaml")?, &actions)
                         .map_err(io::Error::other);
                 }
                 KeyCode::Char('?') => render::help_dialog(terminal, &state)?,
 
                 KeyCode::Char('u') => {
                     actions.undo();
-                    state = undo_action(actions.history());
+                    state = replay(actions.history());
                 }
                 KeyCode::Char('r') => {
                     if let Some(action) = actions.redo() {
@@ -77,6 +77,6 @@ fn key_to_intent(terminal: &mut DefaultTerminal, key_code: KeyCode) -> Option<In
     }
 }
 
-fn maybe_load_state() -> Option<State> {
-    serde_yaml::from_reader(File::open("state.yaml").ok()?).ok()
+fn maybe_load_actions() -> Option<UndoStack<Action>> {
+    serde_yaml::from_reader(File::open("actions.yaml").ok()?).ok()
 }

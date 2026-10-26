@@ -1,3 +1,7 @@
+use serde::Deserialize;
+use serde::Serialize;
+use std::default::Default;
+
 /// A linear undo and redo stack.
 ///
 /// `UndoStack` manages history using two internal stacks: one for active/applied
@@ -18,34 +22,13 @@
 /// undo_stack.undo(); // undoes "action 2"
 /// undo_stack.redo(); // redoes "action 2"
 /// ```
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UndoStack<T> {
     stack: Vec<T>,
     redo_stack: Vec<T>,
 }
 
-impl<T> Default for UndoStack<T> {
-    /// Creates an empty `UndoStack`.
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> UndoStack<T> {
-    /// Creates a new, empty `UndoStack`.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let undo_stack: UndoStack<i32> = UndoStack::new();
-    /// ```
-    pub fn new() -> Self {
-        Self {
-            stack: vec![],
-            redo_stack: vec![],
-        }
-    }
-
     /// Pushes a new item onto the undo stack.
     ///
     /// This records a new action and clears the redo stack, as branching
@@ -119,6 +102,15 @@ impl<T> UndoStack<T> {
     /// ```
     pub fn history(&self) -> &[T] {
         &self.stack
+    }
+}
+
+impl<T> Default for UndoStack<T> {
+    fn default() -> Self {
+        Self {
+            stack: vec![],
+            redo_stack: vec![],
+        }
     }
 }
 

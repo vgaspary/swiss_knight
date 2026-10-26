@@ -13,7 +13,7 @@ pub enum Intent {
     StartTournament,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     AddPlayer(String),
     RemovePlayer(usize),
@@ -21,21 +21,21 @@ pub enum Action {
     StartTournament,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchResult {
     WinP1,
     Draw,
     WinP2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Match {
     pub p1: usize,
     pub p2: usize,
     pub result: Option<MatchResult>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Round(Vec<Match>);
 
 impl Round {
@@ -44,10 +44,10 @@ impl Round {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Score(pub usize);
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     Lobby {
         players: Vec<String>,
@@ -123,7 +123,7 @@ pub fn do_action(state: State, action: &Action) -> State {
     }
 }
 
-pub fn undo_action(actions: &[Action]) -> State {
+pub fn replay(actions: &[Action]) -> State {
     actions.iter().fold(State::default(), do_action)
 }
 
@@ -205,13 +205,13 @@ mod tests {
     }
 
     #[test]
-    fn test_undo_action_replays_history() {
+    fn test_replay() {
         let actions = vec![
             Action::AddPlayer("Alice".to_string()),
             Action::AddPlayer("Bob".to_string()),
             Action::SetCursor(0),
         ];
-        let state = undo_action(&actions);
+        let state = replay(&actions);
         assert_matches!(state, State::Lobby { ref players, cursor } if players == &["Alice", "Bob"] && cursor == 0);
     }
 
