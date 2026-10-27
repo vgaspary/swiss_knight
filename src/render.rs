@@ -155,13 +155,31 @@ fn render_rounds(
     let mut items: Vec<ListItem> = vec![];
     let mut match_row_indices: Vec<usize> = vec![]; // maps match index -> flat list index
 
+    let last_round_idx = rounds.len().saturating_sub(1);
+
     for (round_idx, round) in rounds.iter().enumerate() {
-        items.push(ListItem::new(Line::from(Span::styled(
-            format!(" Round {}", round_idx + 1),
+        let is_current_round = round_idx == last_round_idx;
+        let header_style = if is_current_round {
             Style::default()
                 .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::ITALIC)
+        };
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!(" Round {}", round_idx + 1),
+            header_style,
         ))));
+
+        let match_style = if is_current_round {
+            Style::default()
+        } else {
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::ITALIC)
+        };
 
         for m in &round.matches {
             let p1_name = players.get(m.p1).map(|n| n.as_str()).unwrap_or("?");
@@ -172,14 +190,33 @@ fn render_rounds(
                 Some(crate::state::MatchResult::Draw) => ("0.5".to_string(), "0.5".to_string()),
                 Some(crate::state::MatchResult::WinP2) => ("0.0".to_string(), "1.0".to_string()),
             };
-            let label = format!("   {p1_name}  {p1_score} - {p2_score}  {p2_name}");
-            match_row_indices.push(items.len());
-            items.push(ListItem::new(label));
+            let line = if is_current_round {
+                match_row_indices.push(items.len());
+                Line::from(vec![
+                    Span::styled(" │ ", Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("{p1_name}  {p1_score} - {p2_score}  {p2_name}"),
+                        match_style,
+                    ),
+                ])
+            } else {
+                Line::from(Span::styled(
+                    format!("   {p1_name}  {p1_score} - {p2_score}  {p2_name}"),
+                    match_style,
+                ))
+            };
+            items.push(ListItem::new(line));
         }
 
         if let Some(player) = round.bye {
-            let label = format!("   {player}  1.0");
-            items.push(ListItem::new(label));
+            let player_name = players.get(player).map(|n| n.as_str()).unwrap_or("?");
+            let label = format!("   {player_name}  1.0 (bye)");
+            items.push(ListItem::new(Line::from(Span::styled(
+                label,
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::ITALIC),
+            ))));
         }
     }
 
@@ -471,5 +508,43 @@ mod tests {
         let backend = TestBackend::new(20, 10);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render_help_dialog(frame)).unwrap();
+    }
+
+    #[test]
+    fn test_render_in_progress_bye_and_current_round_cursor() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let state = State::InProgress {
+            players: vec![
+                "Alice".to_string(),
+                "Bob".to_string(),
+                "Charlie".to_string(),
+            ],
+            cursor: 0,
+            prev_rounds: vec![crate::state::Round {
+                matches: vec![crate::state::Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(crate::state::MatchResult::WinP1),
+                }],
+                bye: Some(2),
+            }],
+            current_round: crate::state::Round {
+                matches: vec![crate::state::Match {
+                    p1: 2,
+                    p2: 0,
+                    result: None,
+                }],
+                bye: Some(1),
+            },
+        };
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        // Bye rows display player names rather than numeric indices
+        assert!(content.contains("Charlie  1.0 (bye)"));
+        assert!(content.contains("Bob  1.0 (bye)"));
+        // Cursor (> ) and active gutter marker (│) select the match in the current round (Round 2)
+        assert!(content.contains(">  │ Charlie  . - .  Alice"));
     }
 }

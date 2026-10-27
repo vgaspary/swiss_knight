@@ -50,12 +50,11 @@ pub fn init_next_round(rounds: &[Round]) -> Round {
     let mut matches = vec![];
     while let Some((_, mut group)) = score_groups.pop_last() {
         while let Some(player) = group.pop() {
-            if let Some(opponent) = group
+            if let Some(opp_idx) = group
                 .iter()
-                .cloned()
-                .rev()
-                .find(|opponent| !have_faced_each_other(player, *opponent))
+                .rposition(|opponent| !have_faced_each_other(player, *opponent))
             {
+                let opponent = group.remove(opp_idx);
                 let new_match = match (
                     color_history[player].white_last_time,
                     color_history[opponent].white_last_time,
@@ -452,7 +451,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_init_next_round_four_players_round_two() {
         let r1 = Round {
             matches: vec![
@@ -498,7 +496,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_init_next_round_three_players_odd_bye() {
         let r1 = Round {
             matches: vec![Match {
@@ -525,7 +522,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_init_next_round_avoids_rematches() {
         let r1 = Round {
             matches: vec![
@@ -552,7 +548,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_init_next_round_cross_group_float_down() {
         let r1 = Round {
             matches: vec![
