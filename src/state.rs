@@ -36,6 +36,7 @@ pub enum Action {
     SetMatchResult(usize, Option<MatchResult>),
     NextRound,
     ConcludeTournament,
+    Scroll(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +137,7 @@ pub enum State {
         players: Vec<String>,
         rankings: Vec<(usize, Score)>,
         rounds: Vec<Round>,
+        scroll: usize,
     },
 }
 
@@ -234,6 +236,7 @@ pub fn do_action(state: State, action: &Action) -> State {
                     players,
                     rankings: score_and_rank(&prev_rounds),
                     rounds: prev_rounds,
+                    scroll: 0,
                 }
             }
         }
@@ -253,8 +256,23 @@ pub fn do_action(state: State, action: &Action) -> State {
                 players,
                 rankings,
                 rounds,
+                scroll: 0,
             }
         }
+        (
+            State::Concluded {
+                players,
+                rankings,
+                rounds,
+                ..
+            },
+            Action::Scroll(scroll),
+        ) => State::Concluded {
+            players,
+            rankings,
+            rounds,
+            scroll: *scroll,
+        },
         (state, _) => state,
     }
 }
@@ -266,6 +284,7 @@ pub fn replay(actions: &[Action]) -> State {
 pub fn intent_to_action<F: FnOnce() -> Option<String>>(
     intent: Intent,
     state: &State,
+    rounds_height: usize,
     prompt_player_name: F,
 ) -> Option<Action> {
     match state {
@@ -331,7 +350,18 @@ pub fn intent_to_action<F: FnOnce() -> Option<String>>(
             }
             _ => None,
         },
-        _ => None,
+        State::Concluded { scroll, rounds, .. } => {
+            let total_rows: usize = rounds
+                .iter()
+                .map(|r| 1 + r.matches.len() + usize::from(r.bye.is_some()))
+                .sum();
+            let max_scroll = total_rows.saturating_sub(rounds_height);
+            match intent {
+                Intent::Up if *scroll > 0 => Some(Action::Scroll(scroll - 1)),
+                Intent::Down if *scroll < max_scroll => Some(Action::Scroll(scroll + 1)),
+                _ => None,
+            }
+        }
     }
 }
 
@@ -418,16 +448,16 @@ mod tests {
         let mut state = State::default();
 
         // Empty state
-        assert_eq!(intent_to_action(Intent::Up, &state, || None), None);
-        assert_eq!(intent_to_action(Intent::Down, &state, || None), None);
+        assert_eq!(intent_to_action(Intent::Up, &state, 10, || None), None);
+        assert_eq!(intent_to_action(Intent::Down, &state, 10, || None), None);
         assert_eq!(
-            intent_to_action(Intent::RemovePlayer, &state, || None),
+            intent_to_action(Intent::RemovePlayer, &state, 10, || None),
             None
         );
 
         // Add unique player
         assert_eq!(
-            intent_to_action(Intent::AddPlayer, &state, || Some("Alice".to_string())),
+            intent_to_action(Intent::AddPlayer, &state, 10, || Some("Alice".to_string())),
             Some(Action::AddPlayer("Alice".to_string()))
         );
 
@@ -438,14 +468,14 @@ mod tests {
 
         // Duplicate player rejected and instead the cursor is moved to it.
         assert_eq!(
-            intent_to_action(Intent::AddPlayer, &state, || Some("Alice".to_string())),
+            intent_to_action(Intent::AddPlayer, &state, 10, || Some("Alice".to_string())),
             None
         );
 
         // Navigation
-        assert_eq!(intent_to_action(Intent::Up, &state, || None), None);
+        assert_eq!(intent_to_action(Intent::Up, &state, 10, || None), None);
         assert_eq!(
-            intent_to_action(Intent::Down, &state, || None),
+            intent_to_action(Intent::Down, &state, 10, || None),
             Some(Action::SetCursor(1))
         );
 
@@ -454,15 +484,49 @@ mod tests {
             cursor: 1,
         };
         assert_eq!(
-            intent_to_action(Intent::Up, &state, || None),
+            intent_to_action(Intent::Up, &state, 10, || None),
             Some(Action::SetCursor(0))
         );
-        assert_eq!(intent_to_action(Intent::Down, &state, || None), None);
+        assert_eq!(intent_to_action(Intent::Down, &state, 10, || None), None);
 
         // Remove
         assert_eq!(
-            intent_to_action(Intent::RemovePlayer, &state, || None),
+            intent_to_action(Intent::RemovePlayer, &state, 10, || None),
             Some(Action::RemovePlayer(1))
+        );
+
+        // Concluded state scrolling via Up/Down:
+        // 1 round with 1 match = 2 rows total.
+        // When viewport height >= 2, Down is capped immediately (no scrolling needed).
+        let concluded = State::Concluded {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            rankings: vec![(0, SCORE_WIN), (1, SCORE_LOSS)],
+            rounds: vec![Round {
+                matches: vec![Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(MatchResult::WinP1),
+                }],
+                bye: None,
+            }],
+            scroll: 0,
+        };
+        assert_eq!(intent_to_action(Intent::Down, &concluded, 10, || None), None);
+
+        // When viewport height is 1 (2 rows total -> max_scroll = 1), Down scrolls to 1 and then caps.
+        assert_eq!(intent_to_action(Intent::Up, &concluded, 1, || None), None);
+        assert_eq!(
+            intent_to_action(Intent::Down, &concluded, 1, || None),
+            Some(Action::Scroll(1))
+        );
+        let concluded_scrolled = do_action(concluded, &Action::Scroll(1));
+        assert_eq!(
+            intent_to_action(Intent::Up, &concluded_scrolled, 1, || None),
+            Some(Action::Scroll(0))
+        );
+        assert_eq!(
+            intent_to_action(Intent::Down, &concluded_scrolled, 1, || None),
+            None
         );
     }
 }

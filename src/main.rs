@@ -52,8 +52,12 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                 }
 
                 key_code => {
+                    let rounds_height =
+                        terminal.size().map(|s| s.height.saturating_sub(2)).unwrap_or(0) as usize;
                     if let Some(action) = key_to_intent(key_code).and_then(|intent| {
-                        intent_to_action(intent, &state, || render::prompt_player_name(terminal))
+                        intent_to_action(intent, &state, rounds_height, || {
+                            render::prompt_player_name(terminal)
+                        })
                     }) {
                         state = do_action(state, &action);
                         actions.push(action);

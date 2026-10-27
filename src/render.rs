@@ -105,12 +105,13 @@ pub fn render(frame: &mut Frame, state: &State) {
             let mut rounds = prev_rounds.clone();
             rounds.push(current_round.clone());
             render_scoreboard(frame, players, &rankings, chunks[0]);
-            render_rounds(frame, players, &rounds, Some(*cursor), chunks[1]);
+            render_rounds(frame, players, &rounds, Some(*cursor), None, chunks[1]);
         }
         State::Concluded {
             players,
             rankings,
             rounds,
+            scroll,
         } => {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -118,7 +119,7 @@ pub fn render(frame: &mut Frame, state: &State) {
                 .split(area);
 
             render_scoreboard(frame, players, rankings, chunks[0]);
-            render_rounds(frame, players, rounds, None, chunks[1]);
+            render_rounds(frame, players, rounds, None, Some(*scroll), chunks[1]);
         }
     }
 }
@@ -150,12 +151,13 @@ fn render_scoreboard(
 /// The list is a flat tree: round headers followed by their match rows.
 /// If `cursor` is `Some`, the last round is treated as the active editable round
 /// and the cursor selects among its match rows. If `cursor` is `None`, all rounds
-/// are rendered as non-editable.
+/// are rendered as non-editable and `scroll_offset` controls the vertical scroll position.
 fn render_rounds(
     frame: &mut Frame,
     players: &[String],
     rounds: &[crate::state::Round],
     cursor: Option<usize>,
+    scroll_offset: Option<usize>,
     area: Rect,
 ) {
     // Build a flat list of displayable rows, tracking which are match rows.
@@ -229,7 +231,14 @@ fn render_rounds(
 
     // Map the logical cursor (match index) to the flat list index.
     let selected_flat = cursor.and_then(|c| match_row_indices.get(c).copied());
+    let total_items = items.len();
+    let inner_height = area.height.saturating_sub(2) as usize; // top & bottom borders
 
+    let max_offset = total_items.saturating_sub(inner_height);
+    let offset = match scroll_offset {
+        Some(scroll) => scroll.min(max_offset),
+        None => max_offset,
+    };
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Rounds"))
         .highlight_style(
@@ -238,9 +247,9 @@ fn render_rounds(
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ");
-
-    let mut list_state = ListState::default();
-    list_state.select(selected_flat);
+    let mut list_state = ListState::default()
+        .with_offset(offset)
+        .with_selected(selected_flat);
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
@@ -574,6 +583,7 @@ mod tests {
                 }],
                 bye: None,
             }],
+            scroll: 0,
         };
 
         terminal.draw(|frame| render(frame, &state)).unwrap();
@@ -588,5 +598,79 @@ mod tests {
         assert!(!content.contains("> "));
         assert!(!content.contains(" │ "));
         assert!(content.contains("   Alice  0.5 - 0.5  Bob"));
+    }
+
+    #[test]
+    fn test_render_rounds_autoscrolls_to_show_whole_current_round() {
+        // Height 8 gives inner height 6 (after top/bottom borders).
+        // With 3 rounds of 2 matches + 1 bye each (4 lines per round = 12 lines total),
+        // the widget should autoscroll to the bottom so the entire Round 3 (including its bye)
+        // is visible even when the cursor is on the first match of Round 3.
+        let backend = TestBackend::new(80, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let round = crate::state::Round {
+            matches: vec![
+                crate::state::Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(crate::state::MatchResult::WinP1),
+                },
+                crate::state::Match {
+                    p1: 2,
+                    p2: 3,
+                    result: Some(crate::state::MatchResult::WinP2),
+                },
+            ],
+            bye: Some(4),
+        };
+        let state = State::InProgress {
+            players: vec![
+                "Alice".to_string(),
+                "Bob".to_string(),
+                "Charlie".to_string(),
+                "Dave".to_string(),
+                "Eve".to_string(),
+            ],
+            cursor: 0,
+            prev_rounds: vec![round.clone(), round.clone()],
+            current_round: round,
+        };
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        assert!(content.contains("Round 3"));
+        assert!(content.contains(">  │ Alice  1.0 - 0.0  Bob"));
+        assert!(content.contains(" │ Charlie  0.0 - 1.0  Dave"));
+        assert!(content.contains("Eve  1.0 (bye)"));
+    }
+
+    #[test]
+    fn test_render_concluded_scrolls_and_clamps() {
+        let backend = TestBackend::new(80, 5); // inner height = 3 rows
+        let mut terminal = Terminal::new(backend).unwrap();
+        let round = crate::state::Round {
+            matches: vec![crate::state::Match {
+                p1: 0,
+                p2: 1,
+                result: Some(crate::state::MatchResult::WinP1),
+            }],
+            bye: None,
+        };
+        // 2 rounds * 2 rows = 4 rows total; inner height = 3 -> max_offset = 1
+        let state = State::Concluded {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            rankings: vec![
+                (0, crate::state::SCORE_WIN + crate::state::SCORE_WIN),
+                (1, crate::state::SCORE_LOSS),
+            ],
+            rounds: vec![round.clone(), round],
+            scroll: 100, // Even if scroll exceeds max_offset, render clamps to max_offset = 1
+        };
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        // Round 1 header scrolled off the top, Round 2 is visible, and bottom is not empty
+        assert!(!content.contains("Round 1"));
+        assert!(content.contains("Round 2"));
     }
 }
