@@ -23,7 +23,6 @@ use ratatui::widgets::List;
 use ratatui::widgets::ListItem;
 use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
-use std::collections::HashMap;
 use std::io;
 
 /// Renders the tournament lobby state.
@@ -97,38 +96,44 @@ pub fn render(frame: &mut Frame, state: &State) {
                 .split(area);
 
             let scores = crate::swiss::score(prev_rounds, Some(current_round));
+            let mut rankings: Vec<(usize, Score)> = (0..players.len())
+                .map(|i| (i, scores.get(&i).cloned().unwrap_or_default()))
+                .collect();
+            // Sort by score descending, then initial pairing index ascending for stability.
+            rankings.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
             let mut rounds = prev_rounds.clone();
             rounds.push(current_round.clone());
-            render_scoreboard(frame, players, scores, chunks[0]);
-            render_rounds(frame, players, &rounds, *cursor, chunks[1]);
+            render_scoreboard(frame, players, &rankings, chunks[0]);
+            render_rounds(frame, players, &rounds, Some(*cursor), chunks[1]);
+        }
+        State::Concluded {
+            players,
+            rankings,
+            rounds,
+        } => {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+                .split(area);
+
+            render_scoreboard(frame, players, rankings, chunks[0]);
+            render_rounds(frame, players, rounds, None, chunks[1]);
         }
     }
 }
 
-/// Renders the scoreboard panel: players sorted by score descending.
+/// Renders the scoreboard panel in the order given by `rankings`.
 fn render_scoreboard(
     frame: &mut Frame,
     players: &[String],
-    scores: HashMap<usize, Score>,
+    rankings: &[(usize, Score)],
     area: Rect,
 ) {
-    let mut ranked: Vec<(usize, &str, Score)> = players
+    let items: Vec<ListItem> = rankings
         .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            (
-                i,
-                name.as_str(),
-                scores.get(&i).cloned().unwrap_or_default(),
-            )
-        })
-        .collect();
-    // Sort by score descending, then name ascending for stability.
-    ranked.sort_by(|a, b| b.2.cmp(&a.2).then(a.1.cmp(b.1)));
-
-    let items: Vec<ListItem> = ranked
-        .iter()
-        .map(|(_, name, score)| {
+        .map(|(idx, score)| {
+            let name = players.get(*idx).map(|n| n.as_str()).unwrap_or("?");
             let width = area.width.saturating_sub(4) as usize; // borders + padding
             let score_str = score.to_string();
             let name_width = width.saturating_sub(score_str.len() + 1);
@@ -143,12 +148,14 @@ fn render_scoreboard(
 /// Renders the rounds/matches panel.
 ///
 /// The list is a flat tree: round headers followed by their match rows.
-/// The cursor selects among match rows only (headers are skipped).
+/// If `cursor` is `Some`, the last round is treated as the active editable round
+/// and the cursor selects among its match rows. If `cursor` is `None`, all rounds
+/// are rendered as non-editable.
 fn render_rounds(
     frame: &mut Frame,
     players: &[String],
     rounds: &[crate::state::Round],
-    cursor: usize,
+    cursor: Option<usize>,
     area: Rect,
 ) {
     // Build a flat list of displayable rows, tracking which are match rows.
@@ -158,7 +165,7 @@ fn render_rounds(
     let last_round_idx = rounds.len().saturating_sub(1);
 
     for (round_idx, round) in rounds.iter().enumerate() {
-        let is_current_round = round_idx == last_round_idx;
+        let is_current_round = cursor.is_some() && round_idx == last_round_idx;
         let header_style = if is_current_round {
             Style::default()
                 .fg(Color::Yellow)
@@ -221,7 +228,7 @@ fn render_rounds(
     }
 
     // Map the logical cursor (match index) to the flat list index.
-    let selected_flat = match_row_indices.get(cursor).copied();
+    let selected_flat = cursor.and_then(|c| match_row_indices.get(c).copied());
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Rounds"))
@@ -546,5 +553,40 @@ mod tests {
         assert!(content.contains("Bob  1.0 (bye)"));
         // Cursor (> ) and active gutter marker (│) select the match in the current round (Round 2)
         assert!(content.contains(">  │ Charlie  . - .  Alice"));
+    }
+
+    #[test]
+    fn test_render_concluded() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let state = State::Concluded {
+            players: vec!["Alice".to_string(), "Bob".to_string()],
+            // Bob (idx 1) ranked ahead of Alice (idx 0) even with equal score (e.g., via Buchholz)
+            rankings: vec![
+                (1, crate::state::SCORE_WIN),
+                (0, crate::state::SCORE_WIN),
+            ],
+            rounds: vec![crate::state::Round {
+                matches: vec![crate::state::Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(crate::state::MatchResult::Draw),
+                }],
+                bye: None,
+            }],
+        };
+
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let content = buffer_to_string(&terminal);
+        assert!(content.contains("Scoreboard"));
+        assert!(content.contains("Rounds"));
+        // Bob appears before Alice in the scoreboard according to `rankings`
+        let bob_pos = content.find("Bob").unwrap();
+        let alice_pos = content.find("Alice").unwrap();
+        assert!(bob_pos < alice_pos);
+        // No active cursor or editable gutter bar in concluded state
+        assert!(!content.contains("> "));
+        assert!(!content.contains(" │ "));
+        assert!(content.contains("   Alice  0.5 - 0.5  Bob"));
     }
 }

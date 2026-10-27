@@ -1,8 +1,10 @@
 use crate::swiss::init_first_round;
 use crate::swiss::init_next_round;
+use crate::swiss::score_and_rank;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Display;
+use std::iter::Sum;
 use std::ops::Add;
 use std::ops::AddAssign;
 
@@ -22,6 +24,7 @@ pub enum Intent {
     // Tournament in progress
     NextRound,
     ResetMatch,
+    ConcludeTournament,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +35,7 @@ pub enum Action {
     StartTournament,
     SetMatchResult(usize, Option<MatchResult>),
     NextRound,
+    ConcludeTournament,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +114,12 @@ impl AddAssign for Score {
     }
 }
 
+impl Sum for Score {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::default(), Self::add)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     Lobby {
@@ -121,6 +131,11 @@ pub enum State {
         cursor: usize,
         prev_rounds: Vec<Round>,
         current_round: Round,
+    },
+    Concluded {
+        players: Vec<String>,
+        rankings: Vec<(usize, Score)>,
+        rounds: Vec<Round>,
     },
 }
 
@@ -215,6 +230,24 @@ pub fn do_action(state: State, action: &Action) -> State {
                 current_round,
             }
         }
+        (
+            State::InProgress {
+                players,
+                prev_rounds,
+                current_round,
+                ..
+            },
+            Action::ConcludeTournament,
+        ) => {
+            let mut rounds = prev_rounds;
+            rounds.push(current_round);
+            let rankings = score_and_rank(&rounds);
+            State::Concluded {
+                players,
+                rankings,
+                rounds,
+            }
+        }
         (state, _) => state,
     }
 }
@@ -244,9 +277,10 @@ pub fn intent_to_action<F: FnOnce() -> Option<String>>(
             _ => None,
         },
         State::InProgress {
+            players,
             cursor,
+            prev_rounds,
             current_round,
-            ..
         } => match intent {
             Intent::Up if *cursor > 0 => Some(Action::SetCursor(cursor - 1)),
             Intent::Down if cursor + 1 < current_round.matches.len() => {
@@ -277,10 +311,20 @@ pub fn intent_to_action<F: FnOnce() -> Option<String>>(
                 Some(_) => Some(Action::SetMatchResult(*cursor, None)),
             },
             Intent::NextRound if current_round.matches.iter().all(|m| m.result.is_some()) => {
-                Some(Action::NextRound)
+                if players.len() == prev_rounds.len() + 1 {
+                    Some(Action::ConcludeTournament)
+                } else {
+                    Some(Action::NextRound)
+                }
+            }
+            Intent::ConcludeTournament
+                if current_round.matches.iter().all(|m| m.result.is_some()) =>
+            {
+                Some(Action::ConcludeTournament)
             }
             _ => None,
         },
+        _ => None,
     }
 }
 

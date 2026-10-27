@@ -2,6 +2,7 @@ use crate::state::Match;
 use crate::state::Round;
 use crate::state::SCORE_WIN;
 use crate::state::Score;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -177,6 +178,47 @@ fn pick_bye(
             },
         );
     (bye, score_groups)
+}
+
+/// In returned vector the index of the element is the ranking, so the final scoreboard must be
+/// rendered in that order. The first variable in the tuple is the index (initial position number)
+/// of the player, not the index of the tuple in the array.
+pub fn score_and_rank(rounds: &[Round]) -> Vec<(usize, Score)> {
+    let scores = score(rounds, None);
+    let opponents = rounds.iter().flat_map(|round| round.matches.iter()).fold(
+        HashMap::<usize, Vec<usize>>::new(),
+        |mut acc, m| {
+            acc.entry(m.p1).or_default().push(m.p2);
+            acc.entry(m.p2).or_default().push(m.p1);
+            acc
+        },
+    );
+    let mut ranked: Vec<(usize, Score)> = scores.clone().into_iter().collect();
+    ranked.sort_by(|a, b| buchholz_tiebreak(&scores, &opponents, a.0, b.0));
+    ranked
+}
+
+fn buchholz_tiebreak(
+    scores: &HashMap<usize, Score>,
+    opponents: &HashMap<usize, Vec<usize>>,
+    p1: usize,
+    p2: usize,
+) -> Ordering {
+    let score_of = |p: usize| scores.get(&p).copied().unwrap_or_default();
+    let buchholz_of = |p: usize| {
+        opponents
+            .get(&p)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .map(score_of)
+            .sum::<Score>()
+    };
+
+    score_of(p2)
+        .cmp(&score_of(p1))
+        .then_with(|| buchholz_of(p2).cmp(&buchholz_of(p1)))
+        .then_with(|| p1.cmp(&p2))
 }
 
 #[cfg(test)]
@@ -595,5 +637,225 @@ mod tests {
             m_for_0.p1
         };
         assert_eq!(opponent_of_0, 3);
+    }
+
+    #[test]
+    fn test_buchholz_tiebreak_and_score_and_rank() {
+        // R1: 0 beats 1, 2 beats 3
+        // R2: 0 draws 2, 1 beats 3
+        // Scores:
+        //   0: 1.5 (opponents: 1 [1.0], 2 [1.5] -> Buchholz = 2.5)
+        //   2: 1.5 (opponents: 3 [0.0], 0 [1.5] -> Buchholz = 1.5)
+        //   1: 1.0 (opponents: 0 [1.5], 3 [0.0] -> Buchholz = 1.5)
+        //   3: 0.0 (opponents: 2 [1.5], 1 [1.0] -> Buchholz = 2.5)
+        // Expected ranking: 0 (1.5, BH 2.5), 2 (1.5, BH 1.5), 1 (1.0), 3 (0.0)
+        let r1 = Round {
+            matches: vec![
+                Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 2,
+                    p2: 3,
+                    result: Some(MatchResult::WinP1),
+                },
+            ],
+            bye: None,
+        };
+        let r2 = Round {
+            matches: vec![
+                Match {
+                    p1: 0,
+                    p2: 2,
+                    result: Some(MatchResult::Draw),
+                },
+                Match {
+                    p1: 1,
+                    p2: 3,
+                    result: Some(MatchResult::WinP1),
+                },
+            ],
+            bye: None,
+        };
+
+        let ranked = score_and_rank(&[r1, r2]);
+        assert_eq!(
+            ranked,
+            vec![
+                (0, SCORE_WIN + SCORE_DRAW),
+                (2, SCORE_WIN + SCORE_DRAW),
+                (1, SCORE_WIN),
+                (3, SCORE_LOSS),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_buchholz_tiebreak_higher_buchholz_wins_even_with_higher_index() {
+        // Suppose player 2 has higher Buchholz than player 0 while tied in score:
+        // R1: 0 beats 1, 2 beats 3
+        // R2: 0 draws 2, 3 beats 1
+        // Scores:
+        //   0: 1.5 (opponents: 1 [0.0], 2 [1.5] -> Buchholz = 1.5)
+        //   2: 1.5 (opponents: 3 [1.0], 0 [1.5] -> Buchholz = 2.5)
+        //   3: 1.0
+        //   1: 0.0
+        // Player 2 must rank ahead of Player 0 due to higher Buchholz.
+        let r1 = Round {
+            matches: vec![
+                Match {
+                    p1: 0,
+                    p2: 1,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 2,
+                    p2: 3,
+                    result: Some(MatchResult::WinP1),
+                },
+            ],
+            bye: None,
+        };
+        let r2 = Round {
+            matches: vec![
+                Match {
+                    p1: 0,
+                    p2: 2,
+                    result: Some(MatchResult::Draw),
+                },
+                Match {
+                    p1: 1,
+                    p2: 3,
+                    result: Some(MatchResult::WinP2),
+                },
+            ],
+            bye: None,
+        };
+
+        let ranked = score_and_rank(&[r1, r2]);
+        assert_eq!(
+            ranked,
+            vec![
+                (2, SCORE_WIN + SCORE_DRAW),
+                (0, SCORE_WIN + SCORE_DRAW),
+                (3, SCORE_WIN),
+                (1, SCORE_LOSS),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_score_and_rank_empty() {
+        assert_eq!(score_and_rank(&[]), vec![]);
+    }
+
+    #[test]
+    fn test_buchholz_tiebreak_primary_score_comparison() {
+        let mut scores = HashMap::new();
+        scores.insert(0, SCORE_WIN);
+        scores.insert(1, SCORE_DRAW);
+
+        let opponents = HashMap::new();
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 0, 1),
+            Ordering::Less
+        );
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 1, 0),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_buchholz_tiebreak_secondary_buchholz_comparison() {
+        // Players 0 and 1 both have 1.0 point, but 0's opponent (2) has 2.0 points
+        // while 1's opponent (3) has 0.5 points.
+        let mut scores = HashMap::new();
+        scores.insert(0, SCORE_WIN);
+        scores.insert(1, SCORE_WIN);
+        scores.insert(2, SCORE_WIN + SCORE_WIN);
+        scores.insert(3, SCORE_DRAW);
+
+        let mut opponents = HashMap::new();
+        opponents.insert(0, vec![2]);
+        opponents.insert(1, vec![3]);
+
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 0, 1),
+            Ordering::Less
+        );
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 1, 0),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn test_buchholz_tiebreak_tertiary_initial_index_comparison() {
+        // Players 0 and 2 have identical scores and identical Buchholz totals.
+        // Player 0 (lower initial index) should rank before Player 2.
+        let mut scores = HashMap::new();
+        scores.insert(0, SCORE_WIN);
+        scores.insert(2, SCORE_WIN);
+        scores.insert(1, SCORE_DRAW);
+        scores.insert(3, SCORE_DRAW);
+
+        let mut opponents = HashMap::new();
+        opponents.insert(0, vec![1]);
+        opponents.insert(2, vec![3]);
+
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 0, 2),
+            Ordering::Less
+        );
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 2, 0),
+            Ordering::Greater
+        );
+        assert_eq!(
+            buchholz_tiebreak(&scores, &opponents, 0, 0),
+            Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn test_score_and_rank_with_byes_contributes_zero_to_buchholz() {
+        // 3 players across 2 rounds:
+        // R1: 0 beats 1, 2 gets bye
+        // R2: 2 draws 0, 1 gets bye
+        // Scores:
+        //   0: 1.5 (opponents: 1 [1.0], 2 [1.5] -> Buchholz = 2.5)
+        //   2: 1.5 (opponents: 0 [1.5], bye [0.0] -> Buchholz = 1.5)
+        //   1: 1.0 (opponents: 0 [1.5], bye [0.0] -> Buchholz = 1.5)
+        // Even though 0 and 2 both have 1.5, 0 played two real opponents while 2 had a bye,
+        // so 0 has higher Buchholz (2.5 vs 1.5) and ranks first.
+        let r1 = Round {
+            matches: vec![Match {
+                p1: 0,
+                p2: 1,
+                result: Some(MatchResult::WinP1),
+            }],
+            bye: Some(2),
+        };
+        let r2 = Round {
+            matches: vec![Match {
+                p1: 2,
+                p2: 0,
+                result: Some(MatchResult::Draw),
+            }],
+            bye: Some(1),
+        };
+
+        let ranked = score_and_rank(&[r1, r2]);
+        assert_eq!(
+            ranked,
+            vec![
+                (0, SCORE_WIN + SCORE_DRAW),
+                (2, SCORE_WIN + SCORE_DRAW),
+                (1, SCORE_WIN),
+            ]
+        );
     }
 }

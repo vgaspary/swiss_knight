@@ -74,6 +74,7 @@ pub fn key_to_intent(key_code: KeyCode) -> Option<Intent> {
         KeyCode::Char('l') => Some(Intent::Right),
         KeyCode::Char('s') => Some(Intent::StartTournament),
         KeyCode::Char('n') => Some(Intent::NextRound),
+        KeyCode::Char('c') => Some(Intent::ConcludeTournament),
         KeyCode::Char(' ') => Some(Intent::ResetMatch),
         _ => None,
     }
