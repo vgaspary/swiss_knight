@@ -24,7 +24,7 @@ pub fn init_first_round(num_players: usize) -> Round {
     Round { matches, bye }
 }
 
-pub fn init_next_round(rounds: &[Round]) -> Round {
+pub fn init_next_round(rounds: &[Round]) -> Option<Round> {
     let players_scored = score(rounds, None);
     let num_players = players_scored.len();
     let color_history = color_history(rounds);
@@ -47,63 +47,119 @@ pub fn init_next_round(rounds: &[Round]) -> Round {
             (k, v)
         })
         .collect();
-    let (bye, mut score_groups) = pick_bye(score_groups, rounds, num_players);
-    let mut matches = vec![];
-    while let Some((_, mut group)) = score_groups.pop_last() {
-        while let Some(player) = group.pop() {
-            if let Some(opp_idx) = group
+    let (bye, score_groups) = pick_bye(score_groups, rounds, num_players);
+
+    // Instead of two nexted loops I will turn this into a recoursive function that turns
+    // `score_groups` into `matches`. It will take `mathces`, `score_groups` (and whatever else
+    // that's captured) and return the same pair.
+    let (matches, _) = pair_up(vec![], score_groups, &color_history, &have_faced_each_other);
+    if matches.is_empty() {
+        // Impossible to create a new round without repeating the pairings.
+        None
+    } else {
+        Some(Round { matches, bye })
+    }
+}
+
+fn pair_up(
+    matches: Vec<Match>,
+    mut score_groups: BTreeMap<Score, Vec<usize>>,
+    color_history: &[ColorHistory],
+    have_faced_each_other: &impl Fn(usize, usize) -> bool,
+) -> (Vec<Match>, BTreeMap<Score, Vec<usize>>) {
+    score_groups.retain(|_, group| !group.is_empty());
+    let Some((top_score, mut top_group)) = score_groups.pop_last() else {
+        return (matches, score_groups);
+    };
+
+    // 1. Pick a player - starting from the highest score group and highest index.
+    let Some(player) = top_group.pop() else {
+        return (matches, score_groups);
+    };
+    if !top_group.is_empty() {
+        score_groups.insert(top_score, top_group);
+    }
+
+    // 2. Find an opponent for this player, with the same preference logic, but excluding the pairs
+    //    that faced each other.
+    let candidates: Vec<(Score, usize, usize)> = score_groups
+        .iter()
+        .rev()
+        .flat_map(|(&score, group)| {
+            group
                 .iter()
-                .rposition(|opponent| !have_faced_each_other(player, *opponent))
-            {
-                let opponent = group.remove(opp_idx);
-                let new_match = match (
-                    color_history[player].white_last_time,
-                    color_history[opponent].white_last_time,
-                ) {
-                    (true, false) => Match {
-                        p1: opponent,
-                        p2: player,
-                        result: None,
-                    },
-                    (false, true) => Match {
+                .enumerate()
+                .rev()
+                .map(move |(idx, &opponent)| (score, idx, opponent))
+        })
+        .filter(|&(_, _, opponent)| !have_faced_each_other(player, opponent))
+        .collect();
+
+    for (opp_score, opp_idx, opponent) in candidates {
+        let mut next_groups = score_groups.clone();
+        let group = next_groups.get_mut(&opp_score).unwrap();
+        group.remove(opp_idx);
+        if group.is_empty() {
+            next_groups.remove(&opp_score);
+        }
+
+        let new_match = match (
+            color_history[player].white_last_time,
+            color_history[opponent].white_last_time,
+        ) {
+            (true, false) => Match {
+                p1: opponent,
+                p2: player,
+                result: None,
+            },
+            (false, true) => Match {
+                p1: player,
+                p2: opponent,
+                result: None,
+            },
+            _ => {
+                // 1. If one had more blacks, they plays white.
+                // 2. If one had less whites, they play white.
+                // 3. Else, the one with lower index plays white.
+                if color_history[player].num_blacks > color_history[opponent].num_blacks
+                    || color_history[player].num_whites < color_history[opponent].num_whites
+                    || player < opponent
+                {
+                    Match {
                         p1: player,
                         p2: opponent,
                         result: None,
-                    },
-                    _ => {
-                        // 1. If one had more blacks, they plays white.
-                        // 2. If one had less whites, they play white.
-                        // 3. Else, the one with lower index plays white.
-                        if color_history[player].num_blacks > color_history[opponent].num_blacks
-                            || color_history[player].num_whites < color_history[opponent].num_whites
-                            || player < opponent
-                        {
-                            Match {
-                                p1: player,
-                                p2: opponent,
-                                result: None,
-                            }
-                        } else {
-                            Match {
-                                p1: opponent,
-                                p2: player,
-                                result: None,
-                            }
-                        }
                     }
-                };
-                matches.push(new_match);
-            } else {
-                // We couldn't find an opponent for this player in thier group. Put them in the next group.
-                if let Some(mut entry) = score_groups.last_entry() {
-                    entry.get_mut().push(player);
                 } else {
-                    todo!("Implement backtracking for pairing.");
+                    Match {
+                        p1: opponent,
+                        p2: player,
+                        result: None,
+                    }
                 }
             }
+        };
+
+        // 3. Push the found pairing into the `matches`
+        let mut next_matches = matches.clone();
+        next_matches.push(new_match);
+
+        // 4. Call the function recursively to fill up the rest of the matchups.
+        let (res_matches, res_groups) = pair_up(
+            next_matches,
+            next_groups,
+            color_history,
+            have_faced_each_other,
+        );
+        if res_groups.is_empty() {
+            // 4.2. If the function returns matches filled up with all the matches, then simply return that.
+            return (res_matches, res_groups);
         }
+        // 4.1. Otherwise continue and try another opponent.
     }
-    Round { matches, bye }
+
+    score_groups.entry(top_score).or_default().push(player);
+    (matches, score_groups)
 }
 
 pub fn score(rounds: &[Round], current_round: Option<&Round>) -> HashMap<usize, Score> {
@@ -483,13 +539,7 @@ mod tests {
     #[test]
     fn test_init_next_round_empty() {
         let next_round = init_next_round(&[]);
-        assert_eq!(
-            next_round,
-            Round {
-                matches: vec![],
-                bye: None
-            }
-        );
+        assert_eq!(next_round, None);
     }
 
     #[test]
@@ -510,7 +560,7 @@ mod tests {
             bye: None,
         };
 
-        let r2 = init_next_round(&[r1]);
+        let r2 = init_next_round(&[r1]).unwrap();
         assert_eq!(r2.bye, None);
         assert_eq!(r2.matches.len(), 2);
 
@@ -548,7 +598,7 @@ mod tests {
             bye: Some(2),
         };
 
-        let r2 = init_next_round(&[r1]);
+        let r2 = init_next_round(&[r1]).unwrap();
         // Player 1 has 0 points and has not had a bye, so player 1 gets the bye
         assert_eq!(r2.bye, Some(1));
         assert_eq!(r2.matches.len(), 1);
@@ -581,7 +631,7 @@ mod tests {
             bye: None,
         };
 
-        let r2 = init_next_round(&[r1]);
+        let r2 = init_next_round(&[r1]).unwrap();
         assert_eq!(r2.matches.len(), 2);
         for m in &r2.matches {
             assert!(!((m.p1 == 0 && m.p2 == 1) || (m.p1 == 1 && m.p2 == 0)));
@@ -622,7 +672,7 @@ mod tests {
             bye: None,
         };
 
-        let r3 = init_next_round(&[r1, r2]);
+        let r3 = init_next_round(&[r1, r2]).unwrap();
         assert_eq!(r3.matches.len(), 2);
         // 0 and 2 already played, 0 and 1 already played.
         // 0 must play 3.
@@ -637,6 +687,83 @@ mod tests {
             m_for_0.p1
         };
         assert_eq!(opponent_of_0, 3);
+    }
+
+    #[test]
+    fn test_init_next_round_backtracking_required() {
+        // 6 players after 2 rounds:
+        // Scores after R2:
+        //   2.0: [2]
+        //   1.0: [0, 1, 3, 4]
+        //   0.0: [5]
+        // Pairs already played:
+        //   R1: (0, 5), (2, 4), (3, 1)
+        //   R2: (2, 3), (1, 0), (4, 5)
+        // Greedy without backtracking:
+        //   1. Pops 2 (from 2.0), skips 4 and 3 (already played), pairs (2, 1).
+        //   2. Pops 4 (from 1.0), pairs (4, 3).
+        //   3. Remaining players are 0 and 5, who already played in R1 -> deadlock!
+        // With backtracking:
+        //   Undoes (4, 3), pairs (4, 0), leaving (3, 5) which is valid.
+        let r1 = Round {
+            matches: vec![
+                Match {
+                    p1: 0,
+                    p2: 5,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 2,
+                    p2: 4,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 3,
+                    p2: 1,
+                    result: Some(MatchResult::WinP1),
+                },
+            ],
+            bye: None,
+        };
+        let r2 = Round {
+            matches: vec![
+                Match {
+                    p1: 2,
+                    p2: 3,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 1,
+                    p2: 0,
+                    result: Some(MatchResult::WinP1),
+                },
+                Match {
+                    p1: 4,
+                    p2: 5,
+                    result: Some(MatchResult::WinP1),
+                },
+            ],
+            bye: None,
+        };
+
+        let r3 = init_next_round(&[r1, r2]).expect("Should find valid R3 pairing via backtracking");
+        assert_eq!(r3.matches.len(), 3);
+        assert_eq!(r3.bye, None);
+    }
+
+    #[test]
+    fn test_init_next_round_impossible_returns_none() {
+        // 2 players who already played each other in R1 cannot be paired again in R2.
+        let r1 = Round {
+            matches: vec![Match {
+                p1: 0,
+                p2: 1,
+                result: Some(MatchResult::WinP1),
+            }],
+            bye: None,
+        };
+
+        assert_eq!(init_next_round(&[r1]), None);
     }
 
     #[test]
@@ -758,10 +885,7 @@ mod tests {
         scores.insert(1, SCORE_DRAW);
 
         let opponents = HashMap::new();
-        assert_eq!(
-            buchholz_tiebreak(&scores, &opponents, 0, 1),
-            Ordering::Less
-        );
+        assert_eq!(buchholz_tiebreak(&scores, &opponents, 0, 1), Ordering::Less);
         assert_eq!(
             buchholz_tiebreak(&scores, &opponents, 1, 0),
             Ordering::Greater
@@ -782,10 +906,7 @@ mod tests {
         opponents.insert(0, vec![2]);
         opponents.insert(1, vec![3]);
 
-        assert_eq!(
-            buchholz_tiebreak(&scores, &opponents, 0, 1),
-            Ordering::Less
-        );
+        assert_eq!(buchholz_tiebreak(&scores, &opponents, 0, 1), Ordering::Less);
         assert_eq!(
             buchholz_tiebreak(&scores, &opponents, 1, 0),
             Ordering::Greater
@@ -806,10 +927,7 @@ mod tests {
         opponents.insert(0, vec![1]);
         opponents.insert(2, vec![3]);
 
-        assert_eq!(
-            buchholz_tiebreak(&scores, &opponents, 0, 2),
-            Ordering::Less
-        );
+        assert_eq!(buchholz_tiebreak(&scores, &opponents, 0, 2), Ordering::Less);
         assert_eq!(
             buchholz_tiebreak(&scores, &opponents, 2, 0),
             Ordering::Greater

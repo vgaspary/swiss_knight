@@ -222,12 +222,19 @@ pub fn do_action(state: State, action: &Action) -> State {
             Action::NextRound,
         ) => {
             prev_rounds.push(current_round);
-            let current_round = init_next_round(&prev_rounds);
-            State::InProgress {
-                players,
-                cursor: 0,
-                prev_rounds,
-                current_round,
+            if let Some(current_round) = init_next_round(&prev_rounds) {
+                State::InProgress {
+                    players,
+                    cursor: 0,
+                    prev_rounds,
+                    current_round,
+                }
+            } else {
+                State::Concluded {
+                    players,
+                    rankings: score_and_rank(&prev_rounds),
+                    rounds: prev_rounds,
+                }
             }
         }
         (
